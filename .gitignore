@@ -9,6 +9,7 @@ azure-credentials.json
 .plan.md
 .env
 .DS_Store
+.env
 Dev_Backlog/
 
 # Python-generated files

@@ -57,9 +57,10 @@ class AzureBlobRepository:
             BlobServiceClient = getattr(AzureStorageModule, "BlobServiceClient")
             if storage.connection_string:
                 self._client = BlobServiceClient.from_connection_string(storage.connection_string)
+                print("Using Blob Service Client")
             elif storage.account_name:
                 credential = _build_credential(auth)
-                url = f"https://{storage.account_name}.blob.core.windows.net"
+                url = f"https://{storage.account_name}.blob.core.usgovcloudapi.net"
                 self._client = BlobServiceClient(account_url=url, credential=credential)
             else:
                 raise RepositoryError("Missing Azure storage account configuration.")
@@ -78,6 +79,7 @@ class AzureBlobRepository:
         client = self._container(container)
         try:
             # Azure SDK returns a lazy iterator; we mirror that behaviour while normalising fields.
+            print("DEBUG container_url =", client.url)
             for blob in client.list_blobs():
                 yield BlobRecord(container=container, name=blob.name, last_modified=getattr(blob, "last_modified", None), size=getattr(blob, "size", None))
         except Exception as exc:

@@ -39,29 +39,22 @@ The workflow still produces hardened artifacts named `<project>-<run>-{sbom|triv
 - Node.js 20+ and npm
 - Azure Storage account (or local artifacts extracted into a directory)
 
-### Python workspace (uv)
+# Run these commands to get the back end up and running
+- cd backend
+##Create virtual environment if not already
+- python -m venv .venv
+- Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass #allows you to run scripts in terminal if not already set
+- .\.venv\Scripts\Activate.ps1 - activate the virtual environment
+# Requirements 
+python -m pip install --upgrade pip setuptools wheel
+pip install -e . -> this is crucial as we are not using prequirements.txt but a wheel with all the dependencies in it
 
-This repo is managed as a uv workspace so the shared SWFT compliance package and backend install together.
+Do this all from within the backend folder, there are differnet dependencies for the front end 
 
-```bash
-# Install deps (creates .venv/ at the repo root)
-uv sync
+# (Optional) set env var if not using .env
+$env:AZURE_STORAGE_CONNECTION_STRING="...EndpointSuffix=core.usgovcloudapi.net"
 
-# Run CLI commands
-uv run swft config show
-
-# Start the backend API (from repo root)
-uv run -- python -m uvicorn app.main:app --reload --app-dir backend/app --port 8000
-```
-
-If you previously created `backend/.venv`, remove it to avoid accidentally running the API outside the workspace.
-
-### Backend API (FastAPI)
-
-```bash
-# assuming uv sync has already created .venv/
-uv run -- python -m uvicorn app.main:app --reload --app-dir backend/app --port 8000
-```
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --log-level debug
 
 Copy `backend/.env.example` to `backend/.env` and fill in the values, or export them in your shell:
 

@@ -23,6 +23,7 @@ SBOM_ARTIFACT_NAME = "sbom.json"
 TRIVY_ARTIFACT_NAME = "trivy.json"
 APPDESIGN_ARTIFACT_NAME = "appdesign.md"
 
+logger = logging.getLogger(__name__)
 
 class ArtifactCatalogService:
     def __init__(self, repository: BlobRepository, settings: AppSettings):
@@ -56,6 +57,7 @@ class ArtifactCatalogService:
         def loader() -> Sequence[ProjectSummary]:
             groups: dict[str, list[datetime | None]] = defaultdict(list)
             for record in self._list_container(self._settings.storage.container_runs, required=True):
+                logger.info("Parsing blob name: %s", record.name)
                 project_id, _run_id, _artifact = parse_blob_key(record.name, self._settings.storage.delimiter)
                 if record.last_modified:
                     groups[project_id].append(record.last_modified)
@@ -82,6 +84,7 @@ class ArtifactCatalogService:
             artifacts_by_run: dict[str, list[ArtifactDescriptor]] = defaultdict(list)
             # Sweep the run container first so we know which run IDs exist before looking for SBOM/Trivy extras.
             for record in self._list_container(self._settings.storage.container_runs, required=True):
+                logger.info(f"Parsing blob name: {record.name}")
                 project, run_id, artifact = parse_blob_key(record.name, self._settings.storage.delimiter)
                 if project != project_id: continue
                 descriptor = ArtifactDescriptor(project_id=project, run_id=run_id, artifact_type="run", blob_name=record.name, container=self._settings.storage.container_runs, last_modified=record.last_modified, size_bytes=record.size)
@@ -244,9 +247,36 @@ def create_catalog(settings: AppSettings) -> ArtifactCatalogService:
 
 def parse_blob_key(blob_name: str, delimiter: str) -> tuple[str, str, str]:
     """Split a blob name into project, run, and artifact segments."""
-    parts = blob_name.split(delimiter)
+
+    # Support legacy "final_assessment_<project>_<run>.json(.sig)" naming
+
+    # final_assessment_<project>_<run>.json
+    if blob_name.startswith("final_assessment_") and blob_name.endswith(".json"):
+        rest = blob_name[len("final_assessment_"):-len(".json")]
+        if "_" not in rest:
+            raise RepositoryError(f"Blob name '{blob_name}' does not match expected pattern.")
+        project, run_id = rest.rsplit("_", 1)
+        return project, run_id, "final_assessment.json"
+
+    # Strip signature suffix if present
+    is_sig = blob_name.endswith(".sig")
+    base_name = blob_name[:-4] if is_sig else blob_name
+
+    #  <project>_<run>_<artifact>.json  (sonarqube + others)
+    if base_name.endswith(".json") and "_" in base_name:
+        base = base_name[:-len(".json")]
+        parts = base.split("_")
+        if len(parts) >= 3:
+            project = parts[0]
+            run_id = parts[1]
+            artifact = "_".join(parts[2:]) + ".json"
+            return project, run_id, artifact
+
+    # 3canonical delimiter-based format
+    parts = base_name.split(delimiter)
     if len(parts) < 3:
         raise RepositoryError(f"Blob name '{blob_name}' does not match expected pattern.")
+
     project = delimiter.join(parts[:-2])
     run_id = parts[-2]
     artifact = parts[-1]
@@ -299,4 +329,3 @@ def _count_by_type(descriptors: Sequence[ArtifactDescriptor]) -> dict[str, int]:
     for descriptor in descriptors:
         counts[descriptor.artifact_type] += 1
     return dict(counts)
-logger = logging.getLogger(__name__)
