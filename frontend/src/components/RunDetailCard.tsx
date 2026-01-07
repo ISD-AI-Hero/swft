@@ -215,12 +215,16 @@ export const RunDetailCard = ({
           Downloadable outputs linked to this run—use them for independent review or archival.
         </p>
         <ul className="mt-4 space-y-2 text-sm text-slate-600 dark:text-slate-300">
-          {detail.artifacts.map((artifact) => (
-            <li key={artifact.blob_name} className="flex items-center justify-between">
-              <span className="font-medium text-slate-900 uppercase dark:text-slate-100">{artifact.artifact_type}</span>
-              <span className="text-xs text-slate-500 dark:text-slate-400">{artifact.blob_name}</span>
-            </li>
-          ))}
+          {detail.artifacts.map((artifact) => {
+            const isSignature = artifact.blob_name.endsWith(".sig");
+            const displayType = isSignature ? `${artifact.artifact_type} - SIG` : artifact.artifact_type;
+            return (
+              <li key={artifact.blob_name} className="flex items-center justify-between">
+                <span className="font-medium text-slate-900 uppercase dark:text-slate-100">{displayType}</span>
+                <span className="text-xs text-slate-500 dark:text-slate-400">{artifact.blob_name}</span>
+              </li>
+            );
+          })}
         </ul>
       </div>
     </div>

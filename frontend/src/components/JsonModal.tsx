@@ -1,5 +1,7 @@
 // Full-screen modal for viewing/downloading raw JSON/text content.
 import { useEffect } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 type JsonModalProps = {
   title: string;
@@ -8,9 +10,10 @@ type JsonModalProps = {
   onClose: () => void;
   mimeType?: string;
   downloadExtension?: string;
+  hideDownload?: boolean;
 };
 
-export const JsonModal = ({ title, content, fileName, onClose, mimeType = "application/json", downloadExtension = "json" }: JsonModalProps) => {
+export const JsonModal = ({ title, content, fileName, onClose, mimeType = "application/json", downloadExtension = "json", hideDownload = false }: JsonModalProps) => {
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
@@ -43,6 +46,7 @@ export const JsonModal = ({ title, content, fileName, onClose, mimeType = "appli
     URL.revokeObjectURL(url);
   };
   const downloadLabel = normalizedExtension === "json" ? "Download JSON" : "Download file";
+  const isMarkdown = mimeType === "text/markdown";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur dark:bg-slate-950/80">
@@ -50,13 +54,15 @@ export const JsonModal = ({ title, content, fileName, onClose, mimeType = "appli
         <header className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-4 dark:border-slate-800">
           <h2 className="text-lg font-semibold text-slate-900 dark:text-white">{title}</h2>
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleDownload}
-              className="rounded-md border border-slate-300 px-3 py-1 text-sm font-medium text-blue-600 transition hover:border-blue-400 hover:text-blue-700 dark:border-slate-600 dark:text-blue-200 dark:hover:border-blue-400 dark:hover:text-blue-100"
-            >
-              {downloadLabel}
-            </button>
+            {!hideDownload && (
+              <button
+                type="button"
+                onClick={handleDownload}
+                className="rounded-md border border-slate-300 px-3 py-1 text-sm font-medium text-blue-600 transition hover:border-blue-400 hover:text-blue-700 dark:border-slate-600 dark:text-blue-200 dark:hover:border-blue-400 dark:hover:text-blue-100"
+              >
+                {downloadLabel}
+              </button>
+            )}
             <button
               type="button"
               onClick={onClose}
@@ -66,9 +72,20 @@ export const JsonModal = ({ title, content, fileName, onClose, mimeType = "appli
             </button>
           </div>
         </header>
-        <pre className="flex-1 overflow-auto bg-slate-100 px-5 py-4 text-xs leading-relaxed text-slate-800 dark:bg-slate-950 dark:text-slate-200">
-          {content}
-        </pre>
+        {isMarkdown ? (
+          <div className="flex-1 overflow-auto bg-white px-5 py-4 dark:bg-slate-900">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              className="prose prose-slate max-w-none dark:prose-invert prose-headings:scroll-mt-16"
+            >
+              {content}
+            </ReactMarkdown>
+          </div>
+        ) : (
+          <pre className="flex-1 overflow-auto bg-slate-100 px-5 py-4 text-xs leading-relaxed text-slate-800 dark:bg-slate-950 dark:text-slate-200">
+            {content}
+          </pre>
+        )}
       </div>
     </div>
   );

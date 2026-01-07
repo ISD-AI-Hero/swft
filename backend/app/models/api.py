@@ -8,7 +8,7 @@ from typing import Mapping, Sequence
 class ArtifactModel(BaseModel):
     project_id: str = Field(..., description="Logical project identifier")
     run_id: str = Field(..., description="GitHub Actions run identifier")
-    artifact_type: str = Field(..., description="Artifact classification (sbom, trivy, run)")
+    artifact_type: str = Field(..., description="Artifact classification (sbom, trivy, run, appdesign, codeql, sonarqube, dockerinspect, finalassessment, other)")
     blob_name: str = Field(..., description="Blob object key")
     container: str = Field(..., description="Azure container name")
     last_modified: datetime | None = Field(default=None, description="Last modified timestamp from blob metadata")

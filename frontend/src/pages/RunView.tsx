@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { fetchArtifact, fetchRunDetail } from "@lib/api";
-import type { AssistantFacet } from "@lib/types";
+// [SWFT AI ASSISTANT - TEMPORARILY DISABLED] - Assistant-related imports
+// import type { AssistantFacet } from "@lib/types";
+// import { AssistantPanel } from "@components/assistant/AssistantPanel";
+// import { SparklesIcon } from "@heroicons/react/24/outline";
 import { SWFT_WORKSPACE_ENABLED } from "@lib/features";
 import { useApi } from "@hooks/useApi";
 import { LoadingState } from "@components/LoadingState";
@@ -11,8 +14,6 @@ import { RunDetailCard } from "@components/RunDetailCard";
 import { CollapsibleSection } from "@components/CollapsibleSection";
 import { JsonModal } from "@components/JsonModal";
 import { InfoPopover } from "@components/InfoPopover";
-import { AssistantPanel } from "@components/assistant/AssistantPanel";
-import { SparklesIcon } from "@heroicons/react/24/outline";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -94,7 +95,51 @@ type TrivySummary = {
   latestPublished: string | null;
 };
 
+type FinalAssessmentFinding = {
+  finding: string;
+  riskLevel: string;
+  determination: string;
+  source: string | null;
+  lineNumber?: number;
+  filePath?: string;
+  prompt: string;
+};
+
+type FinalAssessmentSummary = {
+  totalFindings: number;
+  severityCounts: { severity: string; count: number }[];
+  highestSeverity: string | null;
+  topFindings: FinalAssessmentFinding[];
+};
+
+type CodeqlFinding = {
+  ruleId: string;
+  message: string;
+  filePath: string;
+  lineNumber: number;
+  severity: string;
+  securitySeverity: number | null;
+  ruleName: string | null;
+  helpText: string | null;
+  helpMarkdown: string | null;
+};
+
+type CodeqlSummary = {
+  totalFindings: number;
+  severityCounts: { severity: string; count: number }[];
+  highestSeverity: string | null;
+  topFindings: CodeqlFinding[];
+  ruleBreakdown: { ruleId: string; count: number; highestSeverity: string | null }[];
+  fileBreakdown: { filePath: string; count: number; highestSeverity: string | null }[];
+  securitySeverityStats: {
+    maxScore: number | null;
+    averageScore: number | null;
+    scoredFindings: number;
+  };
+};
+
 const severityOrder = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"];
+const codeqlSeverityOrder = ["error", "warning", "note"];
 const severityColors: Record<string, string> = {
   CRITICAL:
     "border border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/20 dark:text-rose-200",
@@ -105,7 +150,13 @@ const severityColors: Record<string, string> = {
   LOW:
     "border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/20 dark:text-emerald-200",
   UNKNOWN:
-    "border border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-600/40 dark:bg-slate-600/30 dark:text-slate-200"
+    "border border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-600/40 dark:bg-slate-600/30 dark:text-slate-200",
+  error:
+    "border border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/20 dark:text-rose-200",
+  warning:
+    "border border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/20 dark:text-amber-200",
+  note:
+    "border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/20 dark:text-emerald-200"
 };
 
 // Quick reference copy for the info popovers so designers can tweak content in one place.
@@ -482,6 +533,412 @@ const buildTrivySummary = (payload: Record<string, unknown>): TrivySummary => {
 
 const formatJson = (value: unknown): string => JSON.stringify(value, null, 2);
 
+// Parse the Final Assessment JSON into a summary with findings and severity counts.
+// Uses the same logic as Trivy for counting findings and determining severity.
+const buildFinalAssessmentSummary = (payload: Record<string, unknown>): FinalAssessmentSummary => {
+  const severityCounts = new Map<string, number>();
+  let highestSeverity: string | null = null;
+  let highestSeverityIndex = severityOrder.length;
+  const findings: FinalAssessmentFinding[] = [];
+  
+  // Final Assessment JSON structure: { "Vulnerabilities": [...], ... }
+  // Check for Vulnerabilities array (capital V)
+  const vulnerabilities = Array.isArray(payload.Vulnerabilities) ? payload.Vulnerabilities : [];
+  
+  // Process each vulnerability
+  for (const vulnEntry of vulnerabilities) {
+    if (typeof vulnEntry !== "object" || vulnEntry === null) continue;
+    const vuln = vulnEntry as Record<string, unknown>;
+    
+    // Extract RiskLevel (Final Assessment uses "RiskLevel" field)
+    let severity: string = "UNKNOWN";
+    if (typeof vuln.RiskLevel === "string") {
+      // RiskLevel values are like "Critical", "High", "Unknown" (title case)
+      // Normalize to uppercase to match severityOrder
+      const riskLevel = vuln.RiskLevel.toUpperCase();
+      
+      // Map to severityOrder values
+      if (riskLevel === "CRITICAL") {
+        severity = "CRITICAL";
+      } else if (riskLevel === "HIGH") {
+        severity = "HIGH";
+      } else if (riskLevel === "MEDIUM") {
+        severity = "MEDIUM";
+      } else if (riskLevel === "LOW") {
+        severity = "LOW";
+      } else {
+        severity = "UNKNOWN";
+      }
+    }
+    
+    // Count by severity
+    severityCounts.set(severity, (severityCounts.get(severity) ?? 0) + 1);
+    
+    // Track highest severity
+    const severityIndex = severityOrder.indexOf(severity);
+    if (severityIndex !== -1 && severityIndex < highestSeverityIndex) {
+      highestSeverityIndex = severityIndex;
+      highestSeverity = severity;
+    }
+    
+    // Extract source from Prompt field
+    let source: string | null = null;
+    const prompt = typeof vuln.Prompt === "string" ? vuln.Prompt : "";
+    if (prompt) {
+      // Check for source names in the prompt (case-insensitive)
+      const promptUpper = prompt.toUpperCase();
+      if (promptUpper.includes("TRIVY")) {
+        source = "Trivy";
+      } else if (promptUpper.includes("SONARQUBE")) {
+        source = "SonarQube";
+      } else if (promptUpper.includes("CODEQL")) {
+        source = "CodeQL";
+      }
+    }
+    
+    // Extract finding data for top findings
+    const finding: FinalAssessmentFinding = {
+      finding: typeof vuln.Finding === "string" ? vuln.Finding : "",
+      riskLevel: severity,
+      determination: typeof vuln.Determination === "string" ? vuln.Determination : "",
+      source: source,
+      lineNumber: typeof vuln.LineNumber === "number" ? vuln.LineNumber : undefined,
+      filePath: typeof vuln.FilePath === "string" ? vuln.FilePath : undefined,
+      prompt: prompt
+    };
+    findings.push(finding);
+  }
+  
+  // Sort findings by severity (same logic as Trivy)
+  const rankSeverity = (value: string) => {
+    const idx = severityOrder.indexOf(value);
+    return idx === -1 ? severityOrder.length : idx;
+  };
+  
+  const prioritizedFindings = findings
+    .sort((a, b) => {
+      const aRank = rankSeverity(a.riskLevel);
+      const bRank = rankSeverity(b.riskLevel);
+      if (aRank !== bRank) return aRank - bRank;
+      // If same severity, maintain original order
+      return 0;
+    })
+    .slice(0, 20); // Limit to top 20 findings
+  
+  // Sort severity counts by severity order
+  const sortedSeverity = severityOrder
+    .filter((severity) => severityCounts.has(severity))
+    .map((severity) => ({
+      severity,
+      count: severityCounts.get(severity) ?? 0
+    }));
+  
+  return {
+    totalFindings: vulnerabilities.length,
+    severityCounts: sortedSeverity,
+    highestSeverity,
+    topFindings: prioritizedFindings
+  };
+};
+
+// Parse the CodeQL SARIF JSON into a summary with findings and severity counts.
+// SARIF structure: { "runs": [{ "results": [...], "tool": { "extensions": [{ "rules": [...] }] } }] }
+const buildCodeqlSummary = (payload: Record<string, unknown>): CodeqlSummary => {
+  const severityCounts = new Map<string, number>();
+  let highestSeverity: string | null = null;
+  let highestSeverityIndex = codeqlSeverityOrder.length;
+  const findings: CodeqlFinding[] = [];
+  const ruleCounts = new Map<string, { count: number; highestSeverity: string | null }>();
+  const fileCounts = new Map<string, { count: number; highestSeverity: string | null }>();
+  const securitySeverityScores: number[] = [];
+  
+  // Extract runs array
+  const runs = Array.isArray(payload.runs) ? payload.runs : [];
+  if (runs.length === 0) {
+    return {
+      totalFindings: 0,
+      severityCounts: [],
+      highestSeverity: null,
+      topFindings: [],
+      ruleBreakdown: [],
+      fileBreakdown: [],
+      securitySeverityStats: { maxScore: null, averageScore: null, scoredFindings: 0 }
+    };
+  }
+  
+  const run = runs[0] as Record<string, unknown>;
+  
+  // Build rule lookup map by matching result.ruleId to rule.id
+  // Rules can be in tool.driver.rules or tool.extensions[].rules
+  const ruleLookup = new Map<string, {
+    name: string | null;
+    helpText: string | null;
+    helpMarkdown: string | null;
+    securitySeverity: number | null;
+    problemSeverity: string | null;
+  }>();
+  
+  const tool = typeof run.tool === "object" && run.tool !== null ? (run.tool as Record<string, unknown>) : null;
+  if (!tool) {
+    return {
+      totalFindings: 0,
+      severityCounts: [],
+      highestSeverity: null,
+      topFindings: [],
+      ruleBreakdown: [],
+      fileBreakdown: [],
+      securitySeverityStats: { maxScore: null, averageScore: null, scoredFindings: 0 }
+    };
+  }
+  
+  // Helper function to process a rules array
+  const processRulesArray = (rules: unknown[]) => {
+    for (const ruleEntry of rules) {
+      if (typeof ruleEntry !== "object" || ruleEntry === null) continue;
+      const rule = ruleEntry as Record<string, unknown>;
+      const ruleId = typeof rule.id === "string" ? rule.id : null;
+      if (!ruleId) continue;
+      
+      // Skip if we already have this rule (extensions take precedence)
+      if (ruleLookup.has(ruleId)) continue;
+      
+      const properties = typeof rule.properties === "object" && rule.properties !== null
+        ? (rule.properties as Record<string, unknown>)
+        : null;
+      
+      // Extract security-severity from properties["security-severity"]
+      // It can be a number or a string (SARIF allows both)
+      let securitySeverity: number | null = null;
+      if (properties && properties["security-severity"] !== undefined && properties["security-severity"] !== null) {
+        const severityValue = properties["security-severity"];
+        if (typeof severityValue === "number") {
+          securitySeverity = severityValue;
+        } else if (typeof severityValue === "string") {
+          const parsed = parseFloat(severityValue);
+          if (!Number.isNaN(parsed) && Number.isFinite(parsed)) {
+            securitySeverity = parsed;
+          }
+        }
+      }
+      
+      const problemSeverity = properties && typeof properties["problem.severity"] === "string"
+        ? properties["problem.severity"]
+        : null;
+      
+      const help = typeof rule.help === "object" && rule.help !== null
+        ? (rule.help as Record<string, unknown>)
+        : null;
+      
+      const helpText = help && typeof help.text === "string" ? help.text : null;
+      const helpMarkdown = help && typeof help.markdown === "string" ? help.markdown : null;
+      
+      const name = typeof rule.name === "string" ? rule.name : null;
+      
+      ruleLookup.set(ruleId, {
+        name,
+        helpText,
+        helpMarkdown,
+        securitySeverity,
+        problemSeverity
+      });
+    }
+  };
+  
+  // Check tool.driver.rules first
+  const driver = typeof tool.driver === "object" && tool.driver !== null ? (tool.driver as Record<string, unknown>) : null;
+  if (driver) {
+    const driverRules = Array.isArray(driver.rules) ? driver.rules : [];
+    processRulesArray(driverRules);
+  }
+  
+  // Check tool.extensions[].rules (these take precedence if same rule ID exists)
+  const extensions = Array.isArray(tool.extensions) ? tool.extensions : [];
+  for (const ext of extensions) {
+    if (typeof ext !== "object" || ext === null) continue;
+    const extension = ext as Record<string, unknown>;
+    const rules = Array.isArray(extension.rules) ? extension.rules : [];
+    processRulesArray(rules);
+  }
+  
+  // Process results
+  const results = Array.isArray(run.results) ? run.results : [];
+  
+  for (const resultEntry of results) {
+    if (typeof resultEntry !== "object" || resultEntry === null) continue;
+    const result = resultEntry as Record<string, unknown>;
+    
+    const ruleId = typeof result.ruleId === "string" ? result.ruleId : "unknown";
+    const messageObj = typeof result.message === "object" && result.message !== null
+      ? (result.message as Record<string, unknown>)
+      : null;
+    const message = messageObj && typeof messageObj.text === "string" ? messageObj.text : "";
+    
+    // Extract location (file path and line number)
+    const locations = Array.isArray(result.locations) ? result.locations : [];
+    let filePath = "";
+    let lineNumber = 0;
+    
+    if (locations.length > 0) {
+      const location = locations[0] as Record<string, unknown>;
+      const physicalLocation = location && typeof location.physicalLocation === "object" && location.physicalLocation !== null
+        ? (location.physicalLocation as Record<string, unknown>)
+        : null;
+      
+      if (physicalLocation) {
+        const artifactLocation = physicalLocation.artifactLocation && typeof physicalLocation.artifactLocation === "object" && physicalLocation.artifactLocation !== null
+          ? (physicalLocation.artifactLocation as Record<string, unknown>)
+          : null;
+        
+        if (artifactLocation && typeof artifactLocation.uri === "string") {
+          filePath = artifactLocation.uri;
+        }
+        
+        const region = physicalLocation.region && typeof physicalLocation.region === "object" && physicalLocation.region !== null
+          ? (physicalLocation.region as Record<string, unknown>)
+          : null;
+        
+        if (region && typeof region.startLine === "number") {
+          lineNumber = region.startLine;
+        }
+      }
+    }
+    
+    // Get rule metadata
+    const ruleMeta = ruleLookup.get(ruleId);
+    const securitySeverity = ruleMeta?.securitySeverity ?? null;
+    
+    // Use SARIF level directly: "error", "warning", "note"
+    const level = result.level && typeof result.level === "string" ? result.level : ruleMeta?.problemSeverity ?? null;
+    const severity: string = level && (level === "error" || level === "warning" || level === "note") ? level : "note";
+    
+    // Count by severity
+    severityCounts.set(severity, (severityCounts.get(severity) ?? 0) + 1);
+    
+    // Track highest severity using CodeQL severity order
+    const severityIndex = codeqlSeverityOrder.indexOf(severity);
+    if (severityIndex !== -1 && severityIndex < highestSeverityIndex) {
+      highestSeverityIndex = severityIndex;
+      highestSeverity = severity;
+    }
+    
+    // Track security severity scores
+    if (securitySeverity !== null && Number.isFinite(securitySeverity)) {
+      securitySeverityScores.push(securitySeverity);
+    }
+    
+    // Track rule breakdown
+    const ruleKey = ruleId.toLowerCase();
+    const ruleExisting = ruleCounts.get(ruleKey);
+    if (!ruleExisting) {
+      ruleCounts.set(ruleKey, { count: 1, highestSeverity: severity });
+    } else {
+      ruleExisting.count += 1;
+      const currentRank = ruleExisting.highestSeverity ? codeqlSeverityOrder.indexOf(ruleExisting.highestSeverity) : codeqlSeverityOrder.length;
+      if (severityIndex !== -1 && (currentRank === -1 || severityIndex < currentRank)) {
+        ruleExisting.highestSeverity = severity;
+      }
+    }
+    
+    // Track file breakdown
+    if (filePath) {
+      const fileKey = filePath.toLowerCase();
+      const fileExisting = fileCounts.get(fileKey);
+      if (!fileExisting) {
+        fileCounts.set(fileKey, { count: 1, highestSeverity: severity });
+      } else {
+        fileExisting.count += 1;
+        const currentRank = fileExisting.highestSeverity ? codeqlSeverityOrder.indexOf(fileExisting.highestSeverity) : codeqlSeverityOrder.length;
+        if (severityIndex !== -1 && (currentRank === -1 || severityIndex < currentRank)) {
+          fileExisting.highestSeverity = severity;
+        }
+      }
+    }
+    
+    findings.push({
+      ruleId,
+      message,
+      filePath,
+      lineNumber,
+      severity,
+      securitySeverity,
+      ruleName: ruleMeta?.name ?? null,
+      helpText: ruleMeta?.helpText ?? null,
+      helpMarkdown: ruleMeta?.helpMarkdown ?? null
+    });
+  }
+  
+  // Sort findings by severity using CodeQL severity order
+  const rankCodeqlSeverity = (value: string) => {
+    const idx = codeqlSeverityOrder.indexOf(value);
+    return idx === -1 ? codeqlSeverityOrder.length : idx;
+  };
+  
+  const prioritizedFindings = findings
+    .sort((a, b) => {
+      const aRank = rankCodeqlSeverity(a.severity);
+      const bRank = rankCodeqlSeverity(b.severity);
+      if (aRank !== bRank) return aRank - bRank;
+      // If same severity, sort by security severity (higher first)
+      const aScore = a.securitySeverity ?? 0;
+      const bScore = b.securitySeverity ?? 0;
+      if (bScore !== aScore) return bScore - aScore;
+      // Then by rule ID
+      return a.ruleId.localeCompare(b.ruleId);
+    })
+    .slice(0, 20); // Limit to top 20 findings
+  
+  // Sort severity counts by CodeQL severity order
+  const sortedSeverity = codeqlSeverityOrder
+    .filter((severity) => severityCounts.has(severity))
+    .map((severity) => ({
+      severity,
+      count: severityCounts.get(severity) ?? 0
+    }));
+  
+  // Sort rule breakdown
+  // Show all rules (no limit) so all severity levels are visible
+  const sortedRules = Array.from(ruleCounts.entries())
+    .map(([ruleId, data]) => ({ ruleId, ...data }))
+    .sort((a, b) => {
+      const aRank = rankCodeqlSeverity(a.highestSeverity ?? "note");
+      const bRank = rankCodeqlSeverity(b.highestSeverity ?? "note");
+      if (aRank !== bRank) return aRank - bRank;
+      return b.count - a.count;
+    });
+  
+  // Sort file breakdown
+  const sortedFiles = Array.from(fileCounts.entries())
+    .map(([filePath, data]) => ({ filePath, ...data }))
+    .sort((a, b) => {
+      const aRank = rankCodeqlSeverity(a.highestSeverity ?? "note");
+      const bRank = rankCodeqlSeverity(b.highestSeverity ?? "note");
+      if (aRank !== bRank) return aRank - bRank;
+      return b.count - a.count;
+    })
+    .slice(0, 10);
+  
+  // Calculate security severity stats
+  const maxScore = securitySeverityScores.length > 0 ? Math.max(...securitySeverityScores) : null;
+  const averageScore =
+    securitySeverityScores.length > 0
+      ? Math.round((securitySeverityScores.reduce((sum, value) => sum + value, 0) / securitySeverityScores.length) * 10) / 10
+      : null;
+  
+  return {
+    totalFindings: findings.length,
+    severityCounts: sortedSeverity,
+    highestSeverity,
+    topFindings: prioritizedFindings,
+    ruleBreakdown: sortedRules,
+    fileBreakdown: sortedFiles,
+    securitySeverityStats: {
+      maxScore,
+      averageScore,
+      scoredFindings: securitySeverityScores.length
+    }
+  };
+};
+
 const SeverityBadge = ({ severity, count }: { severity: string; count?: number }) => {
   const style = severityColors[severity] ?? severityColors.UNKNOWN;
   return (
@@ -594,7 +1051,7 @@ const SbomSummaryView = ({ summary, trivy }: { summary: SbomSummary; trivy?: Tri
     if (list.length === 0) return [];
     const aggregated = new Map<
       string,
-      { name: string; version: string; type: string; missingLicense: boolean; count: number }
+      { name: string; version: string; type: string; missingLicense: boolean; count: number; supplier?: string | null }
     >();
     for (const item of list) {
       const key = `${item.name}@@${item.version}@@${item.type}`.toLowerCase();
@@ -1156,6 +1613,177 @@ const TrivySummaryView = ({
   );
 };
 
+const CodeqlSummaryView = ({
+  summary,
+  onViewDetails
+}: {
+  summary: CodeqlSummary;
+  onViewDetails: (title: string, content: string, mimeType: string, downloadExtension: string) => void;
+}) => {
+  const hasNoFindings = summary.totalFindings === 0;
+  const borderColor = hasNoFindings
+    ? "border-emerald-300 dark:border-emerald-500/40"
+    : "border-rose-300 dark:border-rose-500/40";
+  const backgroundColor = hasNoFindings
+    ? "bg-emerald-50 dark:bg-emerald-500/10"
+    : "bg-rose-50 dark:bg-rose-500/10";
+  const labelColor = hasNoFindings
+    ? "text-emerald-700 dark:text-emerald-200"
+    : "text-rose-700 dark:text-rose-200";
+  const valueColor = hasNoFindings
+    ? "text-emerald-900 dark:text-white"
+    : "text-rose-900 dark:text-white";
+  const formatSecuritySeverity = (value: number | null) => (value === null ? "Not provided" : value.toFixed(1));
+  // Show all rules and files (no limit) so all severity levels are visible
+  const topRules = summary.ruleBreakdown;
+  const topFiles = summary.fileBreakdown;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <p className="text-sm text-slate-600 dark:text-slate-300">
+          Static analysis findings from CodeQL with rule-based detection, security severity scores, and code locations.
+        </p>
+      </div>
+      <div className={`rounded-xl border px-4 py-5 ${borderColor} ${backgroundColor}`}>
+        <p className={`text-sm ${labelColor}`}>Total findings</p>
+        <p className={`mt-2 text-3xl font-semibold ${valueColor}`}>{summary.totalFindings}</p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {summary.severityCounts.length === 0 ? (
+          <span className="text-sm text-slate-500 dark:text-slate-400">No findings detected.</span>
+        ) : (
+          summary.severityCounts.map((item) => <SeverityBadge key={item.severity} severity={item.severity} count={item.count} />)
+        )}
+      </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition dark:border-slate-800 dark:bg-slate-900/60">
+          <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Exploitability signals</h4>
+          <dl className="mt-4 space-y-3 text-sm text-slate-600 dark:text-slate-300">
+            <div className="flex items-center justify-between">
+              <dt>Highest CVSS (any source)</dt>
+              <dd className="text-right text-slate-900 dark:text-slate-100">{formatSecuritySeverity(summary.securitySeverityStats.maxScore)}</dd>
+            </div>
+            <div className="flex items-center justify-between">
+              <dt>Average CVSS</dt>
+              <dd className="text-right text-slate-900 dark:text-slate-100">
+                {formatSecuritySeverity(summary.securitySeverityStats.averageScore)}
+                <span className="ml-2 text-xs text-slate-500 dark:text-slate-400">({summary.securitySeverityStats.scoredFindings} scored)</span>
+              </dd>
+            </div>
+            <div className="flex items-center justify-between">
+              <dt>Highest severity</dt>
+              <dd className="text-right">
+                <SeverityBadge severity={summary.highestSeverity ?? "note"} />
+              </dd>
+            </div>
+          </dl>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition dark:border-slate-800 dark:bg-slate-900/60">
+          <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Rule breakdown</h4>
+          {summary.ruleBreakdown.length === 0 ? (
+            <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">No rules triggered findings.</p>
+          ) : (
+            <ul className="mt-4 space-y-2 text-sm text-slate-600 dark:text-slate-300">
+              {topRules.map((item) => (
+                <li key={item.ruleId} className="flex items-center justify-between">
+                  <span className="font-medium text-slate-900 dark:text-slate-100">{item.ruleId}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-500 dark:text-slate-400">{item.count}</span>
+                    {item.highestSeverity && <SeverityBadge severity={item.highestSeverity} />}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition dark:border-slate-800 dark:bg-slate-900/60">
+        <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">File breakdown</h4>
+        {summary.fileBreakdown.length === 0 ? (
+          <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">No files with findings detected.</p>
+        ) : (
+          <ul className="mt-4 space-y-2 text-sm text-slate-600 dark:text-slate-300">
+            {topFiles.map((item) => (
+              <li key={item.filePath} className="flex items-center justify-between">
+                <span className="font-medium text-slate-900 dark:text-slate-100 break-all">{item.filePath}</span>
+                <div className="flex items-center gap-2 ml-2">
+                  <span className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{item.count}</span>
+                  {item.highestSeverity && <SeverityBadge severity={item.highestSeverity} />}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <div className="space-y-3">
+        <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Top findings</h4>
+        {summary.topFindings.length === 0 ? (
+          <p className="text-sm text-slate-500 dark:text-slate-400">No findings reported.</p>
+        ) : (
+          <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800">
+            <div className="max-h-96 overflow-y-auto">
+              <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800">
+                <thead className="bg-slate-100 dark:bg-slate-900/70">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Severity</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Vulnerability</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Message</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Security Severity</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 bg-white dark:divide-slate-900 dark:bg-slate-950/40">
+                  {summary.topFindings.map((finding, index) => (
+                    <tr key={`${finding.ruleId}-${finding.filePath}-${index}`} className="hover:bg-slate-50 dark:hover:bg-slate-900/60">
+                      <td className="px-4 py-3 text-sm font-semibold uppercase text-slate-900 dark:text-slate-100">
+                        <SeverityBadge severity={finding.severity} />
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-900 dark:text-slate-100">
+                        <p className="font-medium">{finding.ruleName || finding.ruleId}</p>
+                        {finding.filePath && (
+                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                            {finding.filePath}{finding.lineNumber > 0 ? `:${finding.lineNumber}` : ""}
+                          </p>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300">
+                        {finding.message}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300">
+                        {finding.securitySeverity !== null ? finding.securitySeverity.toFixed(1) : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {(finding.helpText || finding.helpMarkdown) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const helpContent = finding.helpMarkdown || finding.helpText || "";
+                              onViewDetails(
+                                `CodeQL Rule - ${finding.ruleId}`,
+                                helpContent,
+                                finding.helpMarkdown ? "text/markdown" : "text/plain",
+                                finding.helpMarkdown ? "md" : "txt"
+                              );
+                            }}
+                            className="rounded-lg border border-blue-500/40 px-3 py-1 text-sm font-medium text-blue-600 transition hover:border-blue-400 hover:text-blue-700 dark:text-blue-200 dark:hover:text-blue-100"
+                          >
+                            View details
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 export const RunPage = () => {
   const { projectId, runId } = useParams<{ projectId: string; runId: string }>();
   const { data, loading, error } = useApi(() => fetchRunDetail(projectId ?? "", runId ?? ""), [projectId, runId]);
@@ -1164,18 +1792,31 @@ export const RunPage = () => {
   const [trivySummary, setTrivySummary] = useState<TrivySummary | null>(null);
   const [trivyRaw, setTrivyRaw] = useState<string | null>(null);
   const [appDesignContent, setAppDesignContent] = useState<string | null>(null);
-  const [artifactError, setArtifactError] = useState<string | null>(null);
+  const [finalAssessmentSummary, setFinalAssessmentSummary] = useState<FinalAssessmentSummary | null>(null);
+  const [finalAssessmentRaw, setFinalAssessmentRaw] = useState<string | null>(null);
+  const [sourceFilter, setSourceFilter] = useState<string | null>(null);
+  const [codeqlSummary, setCodeqlSummary] = useState<CodeqlSummary | null>(null);
+  const [codeqlRaw, setCodeqlRaw] = useState<string | null>(null);
+  const [dockerInspectRaw, setDockerInspectRaw] = useState<string | null>(null);
+  const [sonarqubeRaw, setSonarqubeRaw] = useState<string | null>(null);
+  const [finalAssessmentError, setFinalAssessmentError] = useState<string | null>(null);
+  const [codeqlError, setCodeqlError] = useState<string | null>(null);
+  const [dockerInspectError, setDockerInspectError] = useState<string | null>(null);
+  const [sonarqubeError, setSonarqubeError] = useState<string | null>(null);
+  const [sbomError, setSbomError] = useState<string | null>(null);
+  const [trivyError, setTrivyError] = useState<string | null>(null);
   const [loadingArtifacts, setLoadingArtifacts] = useState<boolean>(false);
-  const [rawModal, setRawModal] = useState<{ title: string; content: string; fileName?: string; mimeType?: string; downloadExtension?: string } | null>(null);
-  const [assistantOpen, setAssistantOpen] = useState(false);
-  const [assistantFacet, setAssistantFacet] = useState<AssistantFacet>("run_manifest");
-  const [assistantPrompt, setAssistantPrompt] = useState<string | undefined>(undefined);
+  const [rawModal, setRawModal] = useState<{ title: string; content: string; fileName?: string; mimeType?: string; downloadExtension?: string; hideDownload?: boolean } | null>(null);
+  // [SWFT AI ASSISTANT - TEMPORARILY DISABLED] - Assistant state and functions
+  // const [assistantOpen, setAssistantOpen] = useState(false);
+  // const [assistantFacet, setAssistantFacet] = useState<AssistantFacet>("run_manifest");
+  // const [assistantPrompt, setAssistantPrompt] = useState<string | undefined>(undefined);
 
-  const openAssistant = (facet: AssistantFacet, prompt?: string) => {
-    setAssistantFacet(facet);
-    setAssistantPrompt(prompt);
-    setAssistantOpen(true);
-  };
+  // const openAssistant = (facet: AssistantFacet, prompt?: string) => {
+  //   setAssistantFacet(facet);
+  //   setAssistantPrompt(prompt);
+  //   setAssistantOpen(true);
+  // };
 
   useEffect(() => {
     let cancelled = false;
@@ -1183,36 +1824,57 @@ export const RunPage = () => {
     const loadArtifacts = async () => {
       if (!data || !projectId || !runId) return;
       setLoadingArtifacts(true);
-      setArtifactError(null);
       try {
         const requests: Promise<void>[] = [];
-        const hasSbom = data.artifacts.some((artifact) => artifact.artifact_type === "sbom");
+        const hasSbom = data.artifacts.some((artifact) => artifact.artifact_type === "sbom" && !artifact.blob_name.endsWith(".sig"));
         if (hasSbom) {
           requests.push(
-            fetchArtifact(projectId, runId, "sbom").then((payload) => {
-              if (cancelled) return;
-              setSbomSummary(buildSbomSummary(payload as Record<string, unknown>));
-              setSbomRaw(formatJson(payload));
-            })
+            fetchArtifact(projectId, runId, "sbom")
+              .then((payload) => {
+                if (cancelled) return;
+                setSbomSummary(buildSbomSummary(payload as Record<string, unknown>));
+                setSbomRaw(formatJson(payload));
+                setSbomError(null);
+              })
+              .catch((err) => {
+                if (cancelled) return;
+                const errorMessage = err instanceof Error ? err.message : "Failed to load SBOM artifact";
+                console.error("Failed to load SBOM:", err);
+                setSbomSummary(null);
+                setSbomRaw(null);
+                setSbomError(errorMessage);
+              })
           );
         } else {
           setSbomSummary(null);
           setSbomRaw(null);
+          setSbomError(null);
         }
-        const hasTrivy = data.artifacts.some((artifact) => artifact.artifact_type === "trivy");
+        const hasTrivy = data.artifacts.some((artifact) => artifact.artifact_type === "trivy" && !artifact.blob_name.endsWith(".sig"));
         if (hasTrivy) {
           requests.push(
-            fetchArtifact(projectId, runId, "trivy").then((payload) => {
-              if (cancelled) return;
-              setTrivySummary(buildTrivySummary(payload as Record<string, unknown>));
-              setTrivyRaw(formatJson(payload));
-            })
+            fetchArtifact(projectId, runId, "trivy")
+              .then((payload) => {
+                if (cancelled) return;
+                setTrivySummary(buildTrivySummary(payload as Record<string, unknown>));
+                setTrivyRaw(formatJson(payload));
+                setTrivyError(null);
+              })
+              .catch((err) => {
+                if (cancelled) return;
+                const errorMessage = err instanceof Error ? err.message : "Failed to load Trivy artifact";
+                console.error("Failed to load Trivy:", err);
+                setTrivySummary(null);
+                setTrivyRaw(null);
+                setTrivyError(errorMessage);
+              })
           );
         } else {
           setTrivySummary(null);
           setTrivyRaw(null);
+          setTrivyError(null);
         }
-        const hasAppDesign = data.artifacts.some((artifact) => artifact.artifact_type === "appdesign");
+        const hasAppDesign = data.artifacts.some((artifact) => artifact.artifact_type === "appdesign" && !artifact.blob_name.endsWith(".sig"));
         if (hasAppDesign) {
           requests.push(
             fetchArtifact(projectId, runId, "appdesign").then((payload) => {
@@ -1230,11 +1892,114 @@ export const RunPage = () => {
         } else {
           setAppDesignContent(null);
         }
+        const hasFinalAssessment = data.artifacts.some(
+          (artifact) =>
+            artifact.artifact_type === "finalassessment" &&
+            artifact.blob_name.startsWith("final_assessment_") &&
+            artifact.blob_name.endsWith(".json") &&
+            !artifact.blob_name.endsWith(".json.sig")
+        );
+        if (hasFinalAssessment) {
+          requests.push(
+            fetchArtifact(projectId, runId, "finalassessment")
+              .then((payload) => {
+                if (cancelled) return;
+                setFinalAssessmentSummary(buildFinalAssessmentSummary(payload as Record<string, unknown>));
+                setFinalAssessmentRaw(formatJson(payload));
+                setFinalAssessmentError(null);
+              })
+              .catch((err) => {
+                if (cancelled) return;
+                const errorMessage = err instanceof Error ? err.message : "Failed to load Final Assessment artifact";
+                console.error("Failed to load Final Assessment:", err);
+                setFinalAssessmentSummary(null);
+                setFinalAssessmentRaw(null);
+                setFinalAssessmentError(errorMessage);
+              })
+          );
+        } else {
+          setFinalAssessmentSummary(null);
+          setFinalAssessmentRaw(null);
+          setFinalAssessmentError(null);
+        }
+        const hasCodeql = data.artifacts.some(
+          (artifact) => artifact.artifact_type === "codeql" && artifact.blob_name.endsWith("codeql.sarif") && !artifact.blob_name.endsWith(".sig")
+        );
+        if (hasCodeql) {
+          requests.push(
+            fetchArtifact(projectId, runId, "codeql")
+              .then((payload) => {
+                if (cancelled) return;
+                setCodeqlSummary(buildCodeqlSummary(payload as Record<string, unknown>));
+                setCodeqlRaw(formatJson(payload));
+                setCodeqlError(null);
+              })
+              .catch((err) => {
+                if (cancelled) return;
+                const errorMessage = err instanceof Error ? err.message : "Failed to load CodeQL artifact";
+                console.error("Failed to load CodeQL:", err);
+                setCodeqlSummary(null);
+                setCodeqlRaw(null);
+                setCodeqlError(errorMessage);
+              })
+          );
+        } else {
+          setCodeqlSummary(null);
+          setCodeqlRaw(null);
+          setCodeqlError(null);
+        }
+        const hasDockerInspect = data.artifacts.some(
+          (artifact) => artifact.artifact_type === "dockerinspect" && artifact.blob_name.endsWith("docker-inspect.json") && !artifact.blob_name.endsWith(".sig")
+        );
+        if (hasDockerInspect) {
+          requests.push(
+            fetchArtifact(projectId, runId, "dockerinspect")
+              .then((payload) => {
+                if (cancelled) return;
+                setDockerInspectRaw(formatJson(payload));
+                setDockerInspectError(null);
+              })
+              .catch((err) => {
+                if (cancelled) return;
+                const errorMessage = err instanceof Error ? err.message : "Failed to load Docker Inspect artifact";
+                console.error("Failed to load Docker Inspect:", err);
+                setDockerInspectRaw(null);
+                setDockerInspectError(errorMessage);
+              })
+          );
+        } else {
+          setDockerInspectRaw(null);
+          setDockerInspectError(null);
+        }
+        const hasSonarqube = data.artifacts.some(
+          (artifact) => artifact.artifact_type === "sonarqube" && artifact.blob_name.endsWith("sonarqube_scan.json") && !artifact.blob_name.endsWith(".sig")
+        );
+        if (hasSonarqube) {
+          requests.push(
+            fetchArtifact(projectId, runId, "sonarqube")
+              .then((payload) => {
+                if (cancelled) return;
+                setSonarqubeRaw(formatJson(payload));
+                setSonarqubeError(null);
+              })
+              .catch((err) => {
+                if (cancelled) return;
+                const errorMessage = err instanceof Error ? err.message : "Failed to load SonarQube artifact";
+                console.error("Failed to load SonarQube:", err);
+                setSonarqubeRaw(null);
+                setSonarqubeError(errorMessage);
+              })
+          );
+        } else {
+          setSonarqubeRaw(null);
+          setSonarqubeError(null);
+        }
         await Promise.all(requests);
       } catch (err) {
+        // Individual artifact errors are handled in their respective catch blocks
+        // This catch is for unexpected errors during the overall loading process
         if (!cancelled) {
-          const message = err instanceof Error ? err.message : "Failed to load artifacts.";
-          setArtifactError(message);
+          console.error("Unexpected error during artifact loading:", err);
         }
       } finally {
         if (!cancelled) setLoadingArtifacts(false);
@@ -1316,16 +2081,56 @@ export const RunPage = () => {
       )
       : null;
 
-  const buildAssistantButton = (facetType: AssistantFacet, prompt: string) => (
-    <button
-      type="button"
-      onClick={() => openAssistant(facetType, prompt)}
-      className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-1 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900 dark:border-slate-700 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:text-white"
-    >
-      <SparklesIcon className="h-4 w-4" />
-      Ask about this
-    </button>
-  );
+  // Helper for the "View raw SARIF" button for CodeQL artifacts.
+  const buildRawSarifButton = (label: string, content: string | null, fileName?: string) =>
+    content
+      ? (
+        <button
+          type="button"
+          onClick={() => setRawModal({ title: label, content, fileName, mimeType: "application/sarif+json", downloadExtension: "sarif" })}
+          className="rounded-lg border border-blue-300 px-3 py-1 text-sm font-medium text-blue-600 transition hover:border-blue-400 hover:text-blue-500 dark:border-blue-500/40 dark:text-blue-200 dark:hover:border-blue-400 dark:hover:text-blue-100"
+        >
+          View raw SARIF
+        </button>
+      )
+      : null;
+
+  // Helper functions to find artifacts by pattern (excluding .sig files).
+  const findFinalAssessmentArtifact = () =>
+    data?.artifacts.find(
+      (artifact) =>
+        artifact.artifact_type === "finalassessment" &&
+        artifact.blob_name.startsWith("final_assessment_") &&
+        artifact.blob_name.endsWith(".json") &&
+        !artifact.blob_name.endsWith(".json.sig")
+    );
+
+  const findCodeqlArtifact = () =>
+    data?.artifacts.find(
+      (artifact) => artifact.artifact_type === "codeql" && artifact.blob_name.endsWith("codeql.sarif") && !artifact.blob_name.endsWith(".sig")
+    );
+
+  const findDockerInspectArtifact = () =>
+    data?.artifacts.find(
+      (artifact) => artifact.artifact_type === "dockerinspect" && artifact.blob_name.endsWith("docker-inspect.json") && !artifact.blob_name.endsWith(".sig")
+    );
+
+  const findSonarqubeArtifact = () =>
+    data?.artifacts.find(
+      (artifact) => artifact.artifact_type === "sonarqube" && artifact.blob_name.endsWith("sonarqube_scan.json") && !artifact.blob_name.endsWith(".sig")
+    );
+
+  // [SWFT AI ASSISTANT - TEMPORARILY DISABLED] - Assistant functionality
+  // const buildAssistantButton = (facetType: AssistantFacet, prompt: string) => (
+  //   <button
+  //     type="button"
+  //     onClick={() => openAssistant(facetType, prompt)}
+  //     className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-1 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900 dark:border-slate-700 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:text-white"
+  //   >
+  //     <SparklesIcon className="h-4 w-4" />
+  //     Ask about this
+  //   </button>
+  // );
 
   return (
     <div className="space-y-6">
@@ -1340,14 +2145,15 @@ export const RunPage = () => {
               Open SWFT workspace
             </Link>
           )}
-          <button
+          {/* [SWFT AI ASSISTANT - TEMPORARILY DISABLED] - Ask Assistant button */}
+          {/* <button
             type="button"
             onClick={() => openAssistant("run_manifest")}
             className="inline-flex items-center gap-2 rounded-full bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-700"
           >
             <SparklesIcon className="h-5 w-5" />
             Ask Assistant
-          </button>
+          </button> */}
         </div>
       </div>
       <CollapsibleSection
@@ -1358,9 +2164,10 @@ export const RunPage = () => {
             {buildRawJsonButton(
               "Run metadata (run.json)",
               runRaw,
-              (data.artifacts.find((artifact) => artifact.artifact_type === "run")?.blob_name) ?? "run.json"
+              (data.artifacts.find((artifact) => artifact.artifact_type === "run" && !artifact.blob_name.endsWith(".sig"))?.blob_name) ?? "run.json"
             )}
-            {buildAssistantButton("run_manifest", `Summarize run ${runId} for an Authorizing Official.`)}
+            {/* [SWFT AI ASSISTANT - TEMPORARILY DISABLED] - Ask about this button */}
+            {/* {buildAssistantButton("run_manifest", `Summarize run ${runId} for an Authorizing Official.`)} */}
           </div>
         }
         defaultOpen
@@ -1395,20 +2202,191 @@ export const RunPage = () => {
             {buildRawJsonButton(
               "SBOM (sbom.cyclonedx.json)",
               sbomRaw,
-              (data.artifacts.find((artifact) => artifact.artifact_type === "sbom")?.blob_name) ?? "sbom.cyclonedx.json"
+              (data.artifacts.find((artifact) => artifact.artifact_type === "sbom" && !artifact.blob_name.endsWith(".sig"))?.blob_name) ?? "sbom.cyclonedx.json"
             )}
-            {buildAssistantButton("sbom", `Highlight critical supply-chain risks in the SBOM for run ${runId}.`)}
+            {/* [SWFT AI ASSISTANT - TEMPORARILY DISABLED] - Ask about this button */}
+            {/* {buildAssistantButton("sbom", `Highlight critical supply-chain risks in the SBOM for run ${runId}.`)} */}
           </div>
         }
       >
         {loadingArtifacts ? (
           <LoadingState message="Loading SBOM summary" />
-        ) : artifactError ? (
-          <ErrorState message={artifactError} />
+        ) : sbomError ? (
+          <ErrorState message={sbomError} />
         ) : sbomSummary ? (
           <SbomSummaryView summary={sbomSummary} trivy={trivySummary} />
         ) : (
           <p className="text-sm text-slate-500 dark:text-slate-400">No SBOM artifact was uploaded for this run.</p>
+        )}
+      </CollapsibleSection>
+      <CollapsibleSection
+        title="AI assessment (Final Assessment)"
+        description="AI-assisted review of all the findings reported."
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            {buildRawJsonButton("Final Assessment (final_assessment.json)", finalAssessmentRaw, findFinalAssessmentArtifact()?.blob_name)}
+          </div>
+        }
+      >
+        {loadingArtifacts ? (
+          <LoadingState message="Loading Final Assessment" />
+        ) : finalAssessmentError ? (
+          <ErrorState message={finalAssessmentError} />
+        ) : finalAssessmentRaw && finalAssessmentSummary ? (
+          <div className="space-y-6">
+            <div className={`rounded-xl border px-4 py-5 ${
+              finalAssessmentSummary.totalFindings === 0
+                ? "border-emerald-300 bg-emerald-50 dark:border-emerald-500/40 dark:bg-emerald-500/10"
+                : "border-rose-300 bg-rose-50 dark:border-rose-500/40 dark:bg-rose-500/10"
+            }`}>
+              <p className={`text-sm ${
+                finalAssessmentSummary.totalFindings === 0
+                  ? "text-emerald-700 dark:text-emerald-200"
+                  : "text-rose-700 dark:text-rose-200"
+              }`}>Total findings</p>
+              <p className={`mt-2 text-3xl font-semibold ${
+                finalAssessmentSummary.totalFindings === 0
+                  ? "text-emerald-900 dark:text-white"
+                  : "text-rose-900 dark:text-white"
+              }`}>{finalAssessmentSummary.totalFindings}</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {finalAssessmentSummary.severityCounts.length === 0 ? (
+                <span className="text-sm text-slate-500 dark:text-slate-400">No findings detected.</span>
+              ) : (
+                finalAssessmentSummary.severityCounts.map((item) => (
+                  <SeverityBadge key={item.severity} severity={item.severity} count={item.count} />
+                ))
+              )}
+            </div>
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Top findings</h4>
+                <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3">
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Source</span>
+                  <div className="flex flex-wrap gap-2">
+                    {["CodeQL", "Trivy", "SonarQube"].map((source) => {
+                      const selected = sourceFilter === source;
+                      return (
+                        <button
+                          key={source}
+                          type="button"
+                          onClick={() => setSourceFilter(selected ? null : source)}
+                          className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                            selected
+                              ? "border-slate-900 bg-slate-900 text-white shadow-sm dark:border-white dark:bg-white dark:text-slate-900"
+                              : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:text-white"
+                          }`}
+                        >
+                          {source}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+              {(() => {
+                const filteredFindings = sourceFilter
+                  ? finalAssessmentSummary.topFindings.filter((finding) => finding.source === sourceFilter)
+                  : finalAssessmentSummary.topFindings;
+                
+                return filteredFindings.length === 0 ? (
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
+                    {sourceFilter ? `No findings from ${sourceFilter}.` : "No findings reported."}
+                  </p>
+                ) : (
+                  <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800">
+                    <div className="max-h-96 overflow-y-auto">
+                      <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800">
+                        <thead className="bg-slate-100 dark:bg-slate-900/70">
+                          <tr>
+                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Risk Level</th>
+                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Source</th>
+                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Vulnerability</th>
+                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Determination</th>
+                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"></th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200 bg-white dark:divide-slate-900 dark:bg-slate-950/40">
+                          {filteredFindings.map((finding, index) => (
+                            <tr key={`${finding.finding}-${index}`} className="hover:bg-slate-50 dark:hover:bg-slate-900/60">
+                              <td className="px-4 py-3 text-sm font-semibold uppercase text-slate-900 dark:text-slate-100">
+                                <SeverityBadge severity={finding.riskLevel} />
+                              </td>
+                              <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300">
+                                {finding.source || "—"}
+                              </td>
+                              <td className="px-4 py-3 text-sm text-slate-900 dark:text-slate-100">
+                                <p className="font-medium">{finding.finding}</p>
+                                {finding.filePath && (
+                                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                                    {finding.filePath}{finding.lineNumber ? `:${finding.lineNumber}` : ""}
+                                  </p>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300">
+                                {finding.determination}
+                              </td>
+                              <td className="px-4 py-3 text-right">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const promptText = finding.prompt || "";
+                                    setRawModal({
+                                      title: `AI Prompt - ${finding.finding}`,
+                                      content: promptText,
+                                      mimeType: "text/plain",
+                                      downloadExtension: "txt",
+                                      hideDownload: true
+                                    });
+                                  }}
+                                  className="rounded-lg border border-blue-500/40 px-3 py-1 text-sm font-medium text-blue-600 transition hover:border-blue-400 hover:text-blue-700 dark:text-blue-200 dark:hover:text-blue-100"
+                                >
+                                  View AI Prompt
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-slate-500 dark:text-slate-400">No Final Assessment artifact was captured for this run.</p>
+        )}
+      </CollapsibleSection>
+      <CollapsibleSection
+        title="Code scanning (CodeQL)"
+        description="Findings reported by CodeQL across the source code."
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            {buildRawSarifButton("CodeQL (codeql.sarif)", codeqlRaw, findCodeqlArtifact()?.blob_name)}
+          </div>
+        }
+      >
+        {loadingArtifacts ? (
+          <LoadingState message="Loading CodeQL" />
+        ) : codeqlError ? (
+          <ErrorState message={codeqlError} />
+        ) : codeqlRaw && codeqlSummary ? (
+          <CodeqlSummaryView
+            summary={codeqlSummary}
+            onViewDetails={(title, content, mimeType, downloadExtension) => {
+              setRawModal({
+                title,
+                content,
+                mimeType,
+                downloadExtension,
+                hideDownload: true
+              });
+            }}
+          />
+        ) : (
+          <p className="text-sm text-slate-500 dark:text-slate-400">No CodeQL artifact was captured for this run.</p>
         )}
       </CollapsibleSection>
       <CollapsibleSection
@@ -1419,20 +2397,63 @@ export const RunPage = () => {
             {buildRawJsonButton(
               "Trivy report (trivy-report.json)",
               trivyRaw,
-              (data.artifacts.find((artifact) => artifact.artifact_type === "trivy")?.blob_name) ?? "trivy-report.json"
+              (data.artifacts.find((artifact) => artifact.artifact_type === "trivy" && !artifact.blob_name.endsWith(".sig"))?.blob_name) ?? "trivy-report.json"
             )}
-            {buildAssistantButton("trivy", `Explain the highest-risk vulnerabilities from the Trivy scan for run ${runId}.`)}
+            {/* [SWFT AI ASSISTANT - TEMPORARILY DISABLED] - Ask about this button */}
+            {/* {buildAssistantButton("trivy", `Explain the highest-risk vulnerabilities from the Trivy scan for run ${runId}.`)} */}
           </div>
         }
       >
         {loadingArtifacts ? (
           <LoadingState message="Loading Trivy report" />
-        ) : artifactError ? (
-          <ErrorState message={artifactError} />
+        ) : trivyError ? (
+          <ErrorState message={trivyError} />
         ) : trivySummary ? (
           <TrivySummaryView summary={trivySummary} policy={trivyPolicy} />
         ) : (
           <p className="text-sm text-slate-500 dark:text-slate-400">No Trivy report was captured for this run.</p>
+        )}
+      </CollapsibleSection>
+      <CollapsibleSection
+        title="Container inspection (Docker Inspect)"
+        description="Configuration and metadata reported by Docker Inspect for the container image."
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            {buildRawJsonButton("Docker Inspect (docker-inspect.json)", dockerInspectRaw, findDockerInspectArtifact()?.blob_name)}
+          </div>
+        }
+      >
+        {loadingArtifacts ? (
+          <LoadingState message="Loading Docker Inspect" />
+        ) : dockerInspectError ? (
+          <ErrorState message={dockerInspectError} />
+        ) : dockerInspectRaw ? (
+          <div className="text-sm text-slate-500 dark:text-slate-400">
+            {/* Content placeholder - to be implemented */}
+          </div>
+        ) : (
+          <p className="text-sm text-slate-500 dark:text-slate-400">No Docker Inspect artifact was captured for this run.</p>
+        )}
+      </CollapsibleSection>
+      <CollapsibleSection
+        title="Code quality analysis (SonarQube)"
+        description="Findings reported by SonarQube across the source code."
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            {buildRawJsonButton("SonarQube (sonarqube_scan.json)", sonarqubeRaw, findSonarqubeArtifact()?.blob_name)}
+          </div>
+        }
+      >
+        {loadingArtifacts ? (
+          <LoadingState message="Loading SonarQube" />
+        ) : sonarqubeError ? (
+          <ErrorState message={sonarqubeError} />
+        ) : sonarqubeRaw ? (
+          <div className="text-sm text-slate-500 dark:text-slate-400">
+            {/* Content placeholder - to be implemented */}
+          </div>
+        ) : (
+          <p className="text-sm text-slate-500 dark:text-slate-400">No SonarQube artifact was captured for this run.</p>
         )}
       </CollapsibleSection>
       <CollapsibleSection
@@ -1465,8 +2486,6 @@ export const RunPage = () => {
       >
         {loadingArtifacts ? (
           <LoadingState message="Loading architecture notes" />
-        ) : artifactError ? (
-          <ErrorState message={artifactError} />
         ) : hasAppDesignDocument ? (
           appDesignHasBody ? (
             <div className="max-h-[32rem] overflow-y-auto rounded-xl border border-slate-200 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/60">
@@ -1484,7 +2503,8 @@ export const RunPage = () => {
           <p className="text-sm text-slate-500 dark:text-slate-400">No app-design.md artifact was provided for this run.</p>
         )}
       </CollapsibleSection>
-      <AssistantPanel
+      {/* [SWFT AI ASSISTANT - TEMPORARILY DISABLED] - AssistantPanel component */}
+      {/* <AssistantPanel
         open={assistantOpen}
         onClose={() => {
           setAssistantOpen(false);
@@ -1500,7 +2520,7 @@ export const RunPage = () => {
           trivy: trivyRaw,
           appDesign: appDesignContent,
         }}
-      />
+      /> */}
       {rawModal && (
         <JsonModal
           title={rawModal.title}
@@ -1508,6 +2528,7 @@ export const RunPage = () => {
           fileName={rawModal.fileName}
           mimeType={rawModal.mimeType}
           downloadExtension={rawModal.downloadExtension}
+          hideDownload={rawModal.hideDownload}
           onClose={() => setRawModal(null)}
         />
       )}

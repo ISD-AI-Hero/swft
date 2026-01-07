@@ -1,5 +1,5 @@
 // Artifact identifiers supported by the backend.
-export type ArtifactType = "sbom" | "trivy" | "run" | "appdesign";
+export type ArtifactType = "sbom" | "trivy" | "run" | "appdesign" | "codeql" | "sonarqube" | "dockerinspect" | "finalassessment" | "other";
 
 // Lightweight project list entry.
 export interface ProjectSummary {
