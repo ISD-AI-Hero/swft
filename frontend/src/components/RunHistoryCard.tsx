@@ -137,19 +137,21 @@ export const RunHistoryCard = ({ projectId, runs }: { projectId: string; runs: R
         color: "#fb923c",
         data: chronological.map((run) => ({
           x: run.run_id,
-          y: run.trivy_findings_total ?? 0,
+          y: run.final_assessment_findings_total ?? null,
           runId: run.run_id,
-          createdAtLabel: run.label
+          createdAtLabel: run.label,
+          hasData: run.final_assessment_findings_total !== null
         }))
       },
       {
-        id: "Fail-set findings",
+        id: "Sec+",
         color: "#ef4444",
         data: chronological.map((run) => ({
           x: run.run_id,
-          y: run.trivy_findings_failset ?? 0,
+          y: run.final_assessment_findings_failset ?? null,
           runId: run.run_id,
-          createdAtLabel: run.label
+          createdAtLabel: run.label,
+          hasData: run.final_assessment_findings_failset !== null
         }))
       }
     ],
@@ -264,7 +266,7 @@ const renderLineChart = (
     return (
     <ResponsiveLine
       data={series}
-      margin={{ top: 20, right: 32, bottom: 48, left: 56 }}
+      margin={{ top: 20, right: 32, bottom: 80, left: 56 }}
       xScale={{ type: "point" }}
       yScale={{ type: "linear", min: options?.yMin ?? 0, max: options?.yMax ?? "auto", stacked: false }}
       theme={nivoTheme}
@@ -296,7 +298,7 @@ const renderLineChart = (
           </div>
         )
       }
-      axisBottom={{ tickRotation: -35, legend: "Run ID", legendOffset: 42, legendPosition: "middle" }}
+      axisBottom={{ tickRotation: -35, legend: "Run ID", legendOffset: 60, legendPosition: "middle" }}
       axisLeft={{
         legend: options?.axisLeftLabel ?? "Count",
         legendOffset: -45,
@@ -349,10 +351,50 @@ const renderLineChart = (
           <header className="flex flex-col gap-1">
             <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Vulnerability posture</h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Track Trivy findings and the subset that break policy thresholds.
+              Track assessment findings and the subset that breaks policy thresholds.
+            </p>
+            <p className="text-xs text-slate-400 dark:text-slate-500 italic mt-1">
+              Note: Gaps indicate runs without the final assessment artifact.
             </p>
           </header>
-          <div className="mt-4 h-64">{renderLineChart(vulnerabilitySeries)}</div>
+          <div className="mt-4 h-64">
+            {renderLineChart(vulnerabilitySeries, {
+              tooltipFormatter: (slice) => {
+                const hasAnyData = slice.points.some((point) => {
+                  const pointData = point.data as { hasData?: boolean; y?: number | null };
+                  return pointData.hasData === true && pointData.y !== null;
+                });
+                
+                return (
+                  <div className="rounded-xl bg-white p-3 text-sm text-slate-700 shadow-lg ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Run {(slice.points[0]?.data as { runId?: string }).runId ?? ""}</div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400">{(slice.points[0]?.data as { createdAtLabel?: string }).createdAtLabel ?? ""}</div>
+                    {!hasAnyData ? (
+                      <div className="mt-2 text-xs text-amber-600 dark:text-amber-400 italic">
+                        Final assessment not available for this run
+                      </div>
+                    ) : (
+                      <div className="mt-2 space-y-1">
+                        {slice.points.map((point) => {
+                          const pointData = point.data as { hasData?: boolean; y?: number | null };
+                          const hasData = pointData.hasData === true && pointData.y !== null;
+                          return (
+                            <div key={point.id} className="flex items-center gap-2">
+                              <span className="inline-flex h-2.5 w-2.5 flex-none rounded-full" style={{ background: point.serieColor }} />
+                              <span className="flex-1 text-xs">{point.serieId}</span>
+                              <span className="text-xs font-semibold text-slate-900 dark:text-slate-100">
+                                {hasData ? point.data.yFormatted : "—"}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+            })}
+          </div>
         </div>
 
         <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-800 dark:bg-slate-950/40">

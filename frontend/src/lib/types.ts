@@ -18,6 +18,9 @@ export interface RunSummary {
   cosign_status: string | null;
   trivy_findings_total: number | null;
   trivy_findings_failset: number | null;
+  final_assessment_findings_total: number | null;
+  final_assessment_findings_failset: number | null;
+  final_assessment_overall_risk_level: string | null;
   deployment_url: string | null;
 }
 

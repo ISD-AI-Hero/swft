@@ -126,6 +126,8 @@ class ArtifactCatalogService:
             for run_id, descriptors in artifacts_by_run.items():
                 metadata = self._safe_load_run(project_id, run_id)
                 sbom_components = self._sbom_component_total(descriptors)
+                final_assessment_total, final_assessment_failset = self._final_assessment_findings(descriptors, metadata)
+                final_assessment_overall_risk_level = self._final_assessment_overall_risk_level(descriptors)
                 summary = RunSummary(
                     project_id=project_id,
                     run_id=run_id,
@@ -135,6 +137,9 @@ class ArtifactCatalogService:
                     cosign_status=_nested_str(metadata, ["assessment", "cosign", "verifyStatus"]),
                     trivy_findings_total=_nested_int(metadata, ["assessment", "trivy", "findings", "total"]),
                     trivy_findings_failset=_nested_int(metadata, ["assessment", "trivy", "findings", "failSet"]),
+                    final_assessment_findings_total=final_assessment_total,
+                    final_assessment_findings_failset=final_assessment_failset,
+                    final_assessment_overall_risk_level=final_assessment_overall_risk_level,
                     deployment_url=_nested_str(metadata, ["deployment", "aci", "url"])
                 )
                 runs[run_id] = summary
@@ -150,6 +155,8 @@ class ArtifactCatalogService:
             metadata = self._load_run_metadata(project_id, run_id)
             descriptors = self._collect_artifacts(project_id, run_id)
             sbom_components = self._sbom_component_total(descriptors)
+            final_assessment_total, final_assessment_failset = self._final_assessment_findings(descriptors, metadata)
+            final_assessment_overall_risk_level = self._final_assessment_overall_risk_level(descriptors)
             # Summaries mirror list_runs so the UI can render detail and list views interchangeably.
             summary = RunSummary(
                 project_id=project_id,
@@ -160,6 +167,9 @@ class ArtifactCatalogService:
                 cosign_status=_nested_str(metadata, ["assessment", "cosign", "verifyStatus"]),
                 trivy_findings_total=_nested_int(metadata, ["assessment", "trivy", "findings", "total"]),
                 trivy_findings_failset=_nested_int(metadata, ["assessment", "trivy", "findings", "failSet"]),
+                final_assessment_findings_total=final_assessment_total,
+                final_assessment_findings_failset=final_assessment_failset,
+                final_assessment_overall_risk_level=final_assessment_overall_risk_level,
                 deployment_url=_nested_str(metadata, ["deployment", "aci", "url"])
             )
             return RunDetail(summary=summary, artifacts=descriptors, metadata=metadata)
@@ -200,6 +210,125 @@ class ArtifactCatalogService:
             components = payload.get("components")
             if isinstance(components, list):
                 return len(components)
+        return None
+
+    def _final_assessment_findings(self, descriptors: Sequence[ArtifactDescriptor], metadata: dict[str, object]) -> tuple[int | None, int | None]:
+        """
+        [FINAL_ASSESSMENT_FINDINGS_TEMP] Extract final assessment findings counts.
+        
+        TODO: Future development should pull this information from the run.json artifact
+        instead of parsing the final_assessment artifact file. For now, this logic pulls
+        from the final_assessment artifact.
+        
+        Returns: (total_findings, failset_findings) tuple, both None if artifact doesn't exist.
+        """
+        # Find final_assessment artifact (exclude .sig files)
+        final_assessment_descriptor = None
+        for descriptor in descriptors:
+            if descriptor.artifact_type == "finalassessment" and descriptor.blob_name.endswith(".json") and not descriptor.blob_name.endswith(".json.sig"):
+                final_assessment_descriptor = descriptor
+                break
+        
+        if final_assessment_descriptor is None:
+            return (None, None)
+        
+        # Try to fetch and parse the artifact
+        try:
+            payload = self.fetch_artifact(final_assessment_descriptor)
+        except RepositoryError as exc:
+            logger.debug("Failed to fetch final_assessment artifact '%s' for run: %s", final_assessment_descriptor.blob_name, exc)
+            return (None, None)
+        
+        # Ensure payload is a dict (not a list)
+        if not isinstance(payload, dict):
+            logger.warning("Final assessment artifact '%s' contains invalid structure (expected dict, got %s)", final_assessment_descriptor.blob_name, type(payload).__name__)
+            return (None, None)
+        
+        # Extract Vulnerabilities array
+        vulnerabilities = payload.get("Vulnerabilities")
+        if not isinstance(vulnerabilities, list):
+            logger.warning("Final assessment artifact '%s' missing or invalid Vulnerabilities array", final_assessment_descriptor.blob_name)
+            return (None, None)
+        
+        # Count total findings
+        total_findings = len(vulnerabilities)
+        
+        # [FINAL_ASSESSMENT_FAILSET_TEMP] Extract failSeverities from trivy section
+        # TODO: This logic is temporarily looking at metadata["assessment"]["trivy"]["failSeverities"]
+        # even though the data is from final_assessment. Future changes to run.json artifact should
+        # move failSeverities to a final_assessment section.
+        failset_findings: int | None = None
+        
+        try:
+            # Navigate to failSeverities in metadata
+            trivy_section = metadata.get("assessment")
+            if isinstance(trivy_section, dict):
+                trivy_data = trivy_section.get("trivy")
+                if isinstance(trivy_data, dict):
+                    fail_severities_str = trivy_data.get("failSeverities")
+                    
+                    if isinstance(fail_severities_str, str) and fail_severities_str:
+                        # Split comma-delimited string and normalize to uppercase
+                        fail_severities_set = {severity.strip().upper() for severity in fail_severities_str.split(",")}
+                        
+                        # Count vulnerabilities where RiskLevel (normalized to uppercase) is in failSeverities set
+                        failset_count = 0
+                        for vuln in vulnerabilities:
+                            if not isinstance(vuln, dict):
+                                continue
+                            risk_level = vuln.get("RiskLevel")
+                            if isinstance(risk_level, str):
+                                risk_level_upper = risk_level.strip().upper()
+                                if risk_level_upper in fail_severities_set:
+                                    failset_count += 1
+                        
+                        failset_findings = failset_count
+                    else:
+                        logger.debug("failSeverities not found or invalid in run.json for run, cannot calculate failset")
+                else:
+                    logger.debug("trivy section not found in assessment metadata, cannot calculate failset")
+            else:
+                logger.debug("assessment section not found in metadata, cannot calculate failset")
+        except Exception as exc:
+            logger.debug("Error extracting failSeverities from metadata: %s", exc)
+        
+        return (total_findings, failset_findings)
+
+    def _final_assessment_overall_risk_level(self, descriptors: Sequence[ArtifactDescriptor]) -> str | None:
+        """
+        Extract the RiskLevel field from the root of final_assessment artifact.
+        
+        Returns the RiskLevel value (CRITICAL, HIGH, MEDIUM, LOW, UNKNOWN) from the root of the JSON,
+        normalized to uppercase, or None if artifact doesn't exist or field is missing.
+        """
+        # Find final_assessment artifact (exclude .sig files)
+        final_assessment_descriptor = None
+        for descriptor in descriptors:
+            if descriptor.artifact_type == "finalassessment" and descriptor.blob_name.endswith(".json") and not descriptor.blob_name.endswith(".json.sig"):
+                final_assessment_descriptor = descriptor
+                break
+        
+        if final_assessment_descriptor is None:
+            return None
+        
+        # Try to fetch and parse the artifact
+        try:
+            payload = self.fetch_artifact(final_assessment_descriptor)
+        except RepositoryError as exc:
+            logger.debug("Failed to fetch final_assessment artifact '%s' for overall risk level: %s", final_assessment_descriptor.blob_name, exc)
+            return None
+        
+        # Ensure payload is a dict (not a list)
+        if not isinstance(payload, dict):
+            logger.warning("Final assessment artifact '%s' contains invalid structure for overall risk level (expected dict, got %s)", final_assessment_descriptor.blob_name, type(payload).__name__)
+            return None
+        
+        # Extract RiskLevel from root of JSON
+        risk_level = payload.get("RiskLevel")
+        if isinstance(risk_level, str):
+            # Normalize to uppercase
+            return risk_level.strip().upper()
+        
         return None
 
     def _collect_artifacts(self, project_id: str, run_id: str) -> list[ArtifactDescriptor]:

@@ -24,6 +24,9 @@ class RunSummaryModel(BaseModel):
     cosign_status: str | None
     trivy_findings_total: int | None
     trivy_findings_failset: int | None
+    final_assessment_findings_total: int | None
+    final_assessment_findings_failset: int | None
+    final_assessment_overall_risk_level: str | None
     deployment_url: str | None
 
 

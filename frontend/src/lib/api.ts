@@ -38,7 +38,7 @@ export const fetchProjects = async (): Promise<ProjectSummary[]> => handle<Proje
 export const fetchRuns = async (projectId: string): Promise<RunSummary[]> => handle<RunSummary[]>(await fetch(apiUrl(`/projects/${projectId}/runs`)));
 // Fetch run detail with metadata and artifact descriptors.
 export const fetchRunDetail = async (projectId: string, runId: string): Promise<RunDetail> => handle<RunDetail>(await fetch(apiUrl(`/projects/${projectId}/runs/${runId}`)));
-// Fetch raw artifact payload (SBOM/Trivy/run/appdesign).
+// Fetch raw artifact payload (run/SBOM/Final Assessment/codeQL/Trivy/Docker Inspect/SonarQube/appdesign).
 export const fetchArtifact = async (projectId: string, runId: string, artifactType: ArtifactType): Promise<unknown> => handle<unknown>(await fetch(apiUrl(`/projects/${projectId}/runs/${runId}/artifacts/${artifactType}`)));
 // Assistant model/persona/facet configuration.
 export const fetchAssistantConfig = async (): Promise<AssistantConfig> => handle<AssistantConfig>(await fetch(apiUrl("/assistant/config")));

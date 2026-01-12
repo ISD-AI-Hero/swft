@@ -1791,18 +1791,23 @@ export const RunPage = () => {
   const [sbomRaw, setSbomRaw] = useState<string | null>(null);
   const [trivySummary, setTrivySummary] = useState<TrivySummary | null>(null);
   const [trivyRaw, setTrivyRaw] = useState<string | null>(null);
-  const [appDesignContent, setAppDesignContent] = useState<string | null>(null);
+  // [APPDESIGN - TEMPORARILY DISABLED] - Architecture context state
+  // const [appDesignContent, setAppDesignContent] = useState<string | null>(null);
   const [finalAssessmentSummary, setFinalAssessmentSummary] = useState<FinalAssessmentSummary | null>(null);
   const [finalAssessmentRaw, setFinalAssessmentRaw] = useState<string | null>(null);
   const [sourceFilter, setSourceFilter] = useState<string | null>(null);
   const [codeqlSummary, setCodeqlSummary] = useState<CodeqlSummary | null>(null);
   const [codeqlRaw, setCodeqlRaw] = useState<string | null>(null);
-  const [dockerInspectRaw, setDockerInspectRaw] = useState<string | null>(null);
-  const [sonarqubeRaw, setSonarqubeRaw] = useState<string | null>(null);
+  // [DOCKER INSPECT - TEMPORARILY DISABLED] - Docker Inspect state
+  // const [dockerInspectRaw, setDockerInspectRaw] = useState<string | null>(null);
+  // [SONARQUBE - TEMPORARILY DISABLED] - SonarQube state
+  // const [sonarqubeRaw, setSonarqubeRaw] = useState<string | null>(null);
   const [finalAssessmentError, setFinalAssessmentError] = useState<string | null>(null);
   const [codeqlError, setCodeqlError] = useState<string | null>(null);
-  const [dockerInspectError, setDockerInspectError] = useState<string | null>(null);
-  const [sonarqubeError, setSonarqubeError] = useState<string | null>(null);
+  // [DOCKER INSPECT - TEMPORARILY DISABLED] - Docker Inspect error state
+  // const [dockerInspectError, setDockerInspectError] = useState<string | null>(null);
+  // [SONARQUBE - TEMPORARILY DISABLED] - SonarQube error state
+  // const [sonarqubeError, setSonarqubeError] = useState<string | null>(null);
   const [sbomError, setSbomError] = useState<string | null>(null);
   const [trivyError, setTrivyError] = useState<string | null>(null);
   const [loadingArtifacts, setLoadingArtifacts] = useState<boolean>(false);
@@ -1874,24 +1879,25 @@ export const RunPage = () => {
           setTrivyRaw(null);
           setTrivyError(null);
         }
-        const hasAppDesign = data.artifacts.some((artifact) => artifact.artifact_type === "appdesign" && !artifact.blob_name.endsWith(".sig"));
-        if (hasAppDesign) {
-          requests.push(
-            fetchArtifact(projectId, runId, "appdesign").then((payload) => {
-              if (cancelled) return;
-              let content: string | null = null;
-              if (typeof payload === "string") {
-                content = payload;
-              } else if (payload && typeof payload === "object" && "content" in payload) {
-                const value = (payload as { content?: unknown }).content;
-                content = typeof value === "string" ? value : value != null ? String(value) : "";
-              }
-              setAppDesignContent(content ?? "");
-            })
-          );
-        } else {
-          setAppDesignContent(null);
-        }
+        // [APPDESIGN - TEMPORARILY DISABLED] - Architecture context fetching logic
+        // const hasAppDesign = data.artifacts.some((artifact) => artifact.artifact_type === "appdesign" && !artifact.blob_name.endsWith(".sig"));
+        // if (hasAppDesign) {
+        //   requests.push(
+        //     fetchArtifact(projectId, runId, "appdesign").then((payload) => {
+        //       if (cancelled) return;
+        //       let content: string | null = null;
+        //       if (typeof payload === "string") {
+        //         content = payload;
+        //       } else if (payload && typeof payload === "object" && "content" in payload) {
+        //         const value = (payload as { content?: unknown }).content;
+        //         content = typeof value === "string" ? value : value != null ? String(value) : "";
+        //       }
+        //       setAppDesignContent(content ?? "");
+        //     })
+        //   );
+        // } else {
+        //   setAppDesignContent(null);
+        // }
         const hasFinalAssessment = data.artifacts.some(
           (artifact) =>
             artifact.artifact_type === "finalassessment" &&
@@ -1948,52 +1954,54 @@ export const RunPage = () => {
           setCodeqlRaw(null);
           setCodeqlError(null);
         }
-        const hasDockerInspect = data.artifacts.some(
-          (artifact) => artifact.artifact_type === "dockerinspect" && artifact.blob_name.endsWith("docker-inspect.json") && !artifact.blob_name.endsWith(".sig")
-        );
-        if (hasDockerInspect) {
-          requests.push(
-            fetchArtifact(projectId, runId, "dockerinspect")
-              .then((payload) => {
-                if (cancelled) return;
-                setDockerInspectRaw(formatJson(payload));
-                setDockerInspectError(null);
-              })
-              .catch((err) => {
-                if (cancelled) return;
-                const errorMessage = err instanceof Error ? err.message : "Failed to load Docker Inspect artifact";
-                console.error("Failed to load Docker Inspect:", err);
-                setDockerInspectRaw(null);
-                setDockerInspectError(errorMessage);
-              })
-          );
-        } else {
-          setDockerInspectRaw(null);
-          setDockerInspectError(null);
-        }
-        const hasSonarqube = data.artifacts.some(
-          (artifact) => artifact.artifact_type === "sonarqube" && artifact.blob_name.endsWith("sonarqube_scan.json") && !artifact.blob_name.endsWith(".sig")
-        );
-        if (hasSonarqube) {
-          requests.push(
-            fetchArtifact(projectId, runId, "sonarqube")
-              .then((payload) => {
-                if (cancelled) return;
-                setSonarqubeRaw(formatJson(payload));
-                setSonarqubeError(null);
-              })
-              .catch((err) => {
-                if (cancelled) return;
-                const errorMessage = err instanceof Error ? err.message : "Failed to load SonarQube artifact";
-                console.error("Failed to load SonarQube:", err);
-                setSonarqubeRaw(null);
-                setSonarqubeError(errorMessage);
-              })
-          );
-        } else {
-          setSonarqubeRaw(null);
-          setSonarqubeError(null);
-        }
+        // [DOCKER INSPECT - TEMPORARILY DISABLED] - Docker Inspect fetching logic
+        // const hasDockerInspect = data.artifacts.some(
+        //   (artifact) => artifact.artifact_type === "dockerinspect" && artifact.blob_name.endsWith("docker-inspect.json") && !artifact.blob_name.endsWith(".sig")
+        // );
+        // if (hasDockerInspect) {
+        //   requests.push(
+        //     fetchArtifact(projectId, runId, "dockerinspect")
+        //       .then((payload) => {
+        //         if (cancelled) return;
+        //         setDockerInspectRaw(formatJson(payload));
+        //         setDockerInspectError(null);
+        //       })
+        //       .catch((err) => {
+        //         if (cancelled) return;
+        //         const errorMessage = err instanceof Error ? err.message : "Failed to load Docker Inspect artifact";
+        //         console.error("Failed to load Docker Inspect:", err);
+        //         setDockerInspectRaw(null);
+        //         setDockerInspectError(errorMessage);
+        //       })
+        //   );
+        // } else {
+        //   setDockerInspectRaw(null);
+        //   setDockerInspectError(null);
+        // }
+        // [SONARQUBE - TEMPORARILY DISABLED] - SonarQube fetching logic
+        // const hasSonarqube = data.artifacts.some(
+        //   (artifact) => artifact.artifact_type === "sonarqube" && artifact.blob_name.endsWith("sonarqube_scan.json") && !artifact.blob_name.endsWith(".sig")
+        // );
+        // if (hasSonarqube) {
+        //   requests.push(
+        //     fetchArtifact(projectId, runId, "sonarqube")
+        //       .then((payload) => {
+        //         if (cancelled) return;
+        //         setSonarqubeRaw(formatJson(payload));
+        //         setSonarqubeError(null);
+        //       })
+        //       .catch((err) => {
+        //         if (cancelled) return;
+        //         const errorMessage = err instanceof Error ? err.message : "Failed to load SonarQube artifact";
+        //         console.error("Failed to load SonarQube:", err);
+        //         setSonarqubeRaw(null);
+        //         setSonarqubeError(errorMessage);
+        //       })
+        //   );
+        // } else {
+        //   setSonarqubeRaw(null);
+        //   setSonarqubeError(null);
+        // }
         await Promise.all(requests);
       } catch (err) {
         // Individual artifact errors are handled in their respective catch blocks
@@ -2013,10 +2021,11 @@ export const RunPage = () => {
 
   // Prepare formatted JSON strings ahead of time so the modal opens instantly.
   const runRaw = useMemo(() => (data ? formatJson(data.metadata) : null), [data]);
-  const appDesignArtifact = useMemo(() => data?.artifacts.find((artifact) => artifact.artifact_type === "appdesign"), [data]);
-  const appDesignFileName = appDesignArtifact?.blob_name ?? "app-design.md";
-  const hasAppDesignDocument = appDesignContent !== null;
-  const appDesignHasBody = (appDesignContent ?? "").trim().length > 0;
+  // [APPDESIGN - TEMPORARILY DISABLED] - Architecture context useMemo variables
+  // const appDesignArtifact = useMemo(() => data?.artifacts.find((artifact) => artifact.artifact_type === "appdesign"), [data]);
+  // const appDesignFileName = appDesignArtifact?.blob_name ?? "app-design.md";
+  // const hasAppDesignDocument = appDesignContent !== null;
+  // const appDesignHasBody = (appDesignContent ?? "").trim().length > 0;
   const trivyPolicy = useMemo(() => {
     // Normalise the Trivy policy fields so we can display the exact scan/fail thresholds.
     if (!data) return null;
@@ -2110,15 +2119,17 @@ export const RunPage = () => {
       (artifact) => artifact.artifact_type === "codeql" && artifact.blob_name.endsWith("codeql.sarif") && !artifact.blob_name.endsWith(".sig")
     );
 
-  const findDockerInspectArtifact = () =>
-    data?.artifacts.find(
-      (artifact) => artifact.artifact_type === "dockerinspect" && artifact.blob_name.endsWith("docker-inspect.json") && !artifact.blob_name.endsWith(".sig")
-    );
+  // [DOCKER INSPECT - TEMPORARILY DISABLED] - Docker Inspect helper function
+  // const findDockerInspectArtifact = () =>
+  //   data?.artifacts.find(
+  //     (artifact) => artifact.artifact_type === "dockerinspect" && artifact.blob_name.endsWith("docker-inspect.json") && !artifact.blob_name.endsWith(".sig")
+  //   );
 
-  const findSonarqubeArtifact = () =>
-    data?.artifacts.find(
-      (artifact) => artifact.artifact_type === "sonarqube" && artifact.blob_name.endsWith("sonarqube_scan.json") && !artifact.blob_name.endsWith(".sig")
-    );
+  // [SONARQUBE - TEMPORARILY DISABLED] - SonarQube helper function
+  // const findSonarqubeArtifact = () =>
+  //   data?.artifacts.find(
+  //     (artifact) => artifact.artifact_type === "sonarqube" && artifact.blob_name.endsWith("sonarqube_scan.json") && !artifact.blob_name.endsWith(".sig")
+  //   );
 
   // [SWFT AI ASSISTANT - TEMPORARILY DISABLED] - Assistant functionality
   // const buildAssistantButton = (facetType: AssistantFacet, prompt: string) => (
@@ -2195,32 +2206,7 @@ export const RunPage = () => {
         />
       </CollapsibleSection>
       <CollapsibleSection
-        title="Software Bill of Materials (SBOM)"
-        description="Component inventory captured from the container image."
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            {buildRawJsonButton(
-              "SBOM (sbom.cyclonedx.json)",
-              sbomRaw,
-              (data.artifacts.find((artifact) => artifact.artifact_type === "sbom" && !artifact.blob_name.endsWith(".sig"))?.blob_name) ?? "sbom.cyclonedx.json"
-            )}
-            {/* [SWFT AI ASSISTANT - TEMPORARILY DISABLED] - Ask about this button */}
-            {/* {buildAssistantButton("sbom", `Highlight critical supply-chain risks in the SBOM for run ${runId}.`)} */}
-          </div>
-        }
-      >
-        {loadingArtifacts ? (
-          <LoadingState message="Loading SBOM summary" />
-        ) : sbomError ? (
-          <ErrorState message={sbomError} />
-        ) : sbomSummary ? (
-          <SbomSummaryView summary={sbomSummary} trivy={trivySummary} />
-        ) : (
-          <p className="text-sm text-slate-500 dark:text-slate-400">No SBOM artifact was uploaded for this run.</p>
-        )}
-      </CollapsibleSection>
-      <CollapsibleSection
-        title="AI assessment (Final Assessment)"
+        title="Final Assessment"
         description="AI-assisted review of all the findings reported."
         actions={
           <div className="flex flex-wrap items-center gap-2">
@@ -2265,7 +2251,9 @@ export const RunPage = () => {
                 <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3">
                   <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Source</span>
                   <div className="flex flex-wrap gap-2">
-                    {["CodeQL", "Trivy", "SonarQube"].map((source) => {
+                    {/* [SONARQUBE - TEMPORARILY DISABLED] - SonarQube removed from source filter */}
+                    {/* {["CodeQL", "Trivy", "SonarQube"].map((source) => { */}
+                    {["CodeQL", "Trivy"].map((source) => {
                       const selected = sourceFilter === source;
                       return (
                         <button
@@ -2360,6 +2348,31 @@ export const RunPage = () => {
         )}
       </CollapsibleSection>
       <CollapsibleSection
+        title="Software Bill of Materials (SBOM)"
+        description="Component inventory captured from the container image."
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            {buildRawJsonButton(
+              "SBOM (sbom.cyclonedx.json)",
+              sbomRaw,
+              (data.artifacts.find((artifact) => artifact.artifact_type === "sbom" && !artifact.blob_name.endsWith(".sig"))?.blob_name) ?? "sbom.cyclonedx.json"
+            )}
+            {/* [SWFT AI ASSISTANT - TEMPORARILY DISABLED] - Ask about this button */}
+            {/* {buildAssistantButton("sbom", `Highlight critical supply-chain risks in the SBOM for run ${runId}.`)} */}
+          </div>
+        }
+      >
+        {loadingArtifacts ? (
+          <LoadingState message="Loading SBOM summary" />
+        ) : sbomError ? (
+          <ErrorState message={sbomError} />
+        ) : sbomSummary ? (
+          <SbomSummaryView summary={sbomSummary} trivy={trivySummary} />
+        ) : (
+          <p className="text-sm text-slate-500 dark:text-slate-400">No SBOM artifact was uploaded for this run.</p>
+        )}
+      </CollapsibleSection>
+      <CollapsibleSection
         title="Code scanning (CodeQL)"
         description="Findings reported by CodeQL across the source code."
         actions={
@@ -2414,7 +2427,8 @@ export const RunPage = () => {
           <p className="text-sm text-slate-500 dark:text-slate-400">No Trivy report was captured for this run.</p>
         )}
       </CollapsibleSection>
-      <CollapsibleSection
+      {/* [DOCKER INSPECT - TEMPORARILY DISABLED] - Docker Inspect section */}
+      {/* <CollapsibleSection
         title="Container inspection (Docker Inspect)"
         description="Configuration and metadata reported by Docker Inspect for the container image."
         actions={
@@ -2429,13 +2443,14 @@ export const RunPage = () => {
           <ErrorState message={dockerInspectError} />
         ) : dockerInspectRaw ? (
           <div className="text-sm text-slate-500 dark:text-slate-400">
-            {/* Content placeholder - to be implemented */}
+            Content placeholder - to be implemented
           </div>
         ) : (
           <p className="text-sm text-slate-500 dark:text-slate-400">No Docker Inspect artifact was captured for this run.</p>
         )}
-      </CollapsibleSection>
-      <CollapsibleSection
+      </CollapsibleSection> */}
+      {/* [SONARQUBE - TEMPORARILY DISABLED] - SonarQube section */}
+      {/* <CollapsibleSection
         title="Code quality analysis (SonarQube)"
         description="Findings reported by SonarQube across the source code."
         actions={
@@ -2450,13 +2465,14 @@ export const RunPage = () => {
           <ErrorState message={sonarqubeError} />
         ) : sonarqubeRaw ? (
           <div className="text-sm text-slate-500 dark:text-slate-400">
-            {/* Content placeholder - to be implemented */}
+            Content placeholder - to be implemented
           </div>
         ) : (
           <p className="text-sm text-slate-500 dark:text-slate-400">No SonarQube artifact was captured for this run.</p>
         )}
-      </CollapsibleSection>
-      <CollapsibleSection
+      </CollapsibleSection> */}
+      {/* [APPDESIGN - TEMPORARILY DISABLED] - Architecture context section */}
+      {/* <CollapsibleSection
         title="Architecture context (app-design.md)"
         description="Per-run design notes included with the workflow artifacts."
         actions={
@@ -2502,7 +2518,7 @@ export const RunPage = () => {
         ) : (
           <p className="text-sm text-slate-500 dark:text-slate-400">No app-design.md artifact was provided for this run.</p>
         )}
-      </CollapsibleSection>
+      </CollapsibleSection> */}
       {/* [SWFT AI ASSISTANT - TEMPORARILY DISABLED] - AssistantPanel component */}
       {/* <AssistantPanel
         open={assistantOpen}
