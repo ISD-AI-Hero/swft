@@ -6,6 +6,7 @@ export interface ProjectSummary {
   project_id: string;
   run_count: number;
   latest_run_at: string | null;
+  latest_overall_risk_level: string | null;
 }
 
 // Aggregated run row used in tables/charts.

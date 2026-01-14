@@ -37,6 +37,7 @@ class ProjectSummary:
     project_id: str
     run_count: int
     latest_run_at: datetime | None
+    latest_overall_risk_level: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

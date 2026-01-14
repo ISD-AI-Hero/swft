@@ -138,8 +138,33 @@ type CodeqlSummary = {
   };
 };
 
+type SonarqubeFinding = {
+  key: string;
+  rule: string;
+  severity: string;
+  type: string;
+  component: string;
+  line: number;
+  message: string;
+  effort: string;
+  tags: string[];
+};
+
+type SonarqubeSummary = {
+  totalFindings: number;
+  severityCounts: { severity: string; count: number }[];
+  typeCounts: { VULNERABILITY: number; CODE_SMELL: number };
+  highestSeverity: string | null;
+  totalEffort: string;
+  averageEffort: string;
+  ruleBreakdown: { ruleId: string; count: number; highestSeverity: string | null }[];
+  fileBreakdown: { filePath: string; count: number; highestSeverity: string | null }[];
+  topFindings: SonarqubeFinding[];
+};
+
 const severityOrder = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"];
 const codeqlSeverityOrder = ["error", "warning", "note"];
+const sonarqubeSeverityOrder = ["BLOCKER", "CRITICAL", "MAJOR", "MINOR", "INFO"];
 const severityColors: Record<string, string> = {
   CRITICAL:
     "border border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/20 dark:text-rose-200",
@@ -156,7 +181,13 @@ const severityColors: Record<string, string> = {
   warning:
     "border border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/20 dark:text-amber-200",
   note:
-    "border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/20 dark:text-emerald-200"
+    "border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/20 dark:text-emerald-200",
+  BLOCKER:
+    "border border-red-200 bg-red-50 text-red-700 dark:border-red-500/40 dark:bg-red-500/20 dark:text-red-200",
+  MAJOR:
+    "border border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-500/40 dark:bg-orange-500/20 dark:text-orange-200",
+  INFO:
+    "border border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/40 dark:bg-blue-500/20 dark:text-blue-200"
 };
 
 // Quick reference copy for the info popovers so designers can tweak content in one place.
@@ -535,7 +566,7 @@ const formatJson = (value: unknown): string => JSON.stringify(value, null, 2);
 
 // Parse the Final Assessment JSON into a summary with findings and severity counts.
 // Uses the same logic as Trivy for counting findings and determining severity.
-const buildFinalAssessmentSummary = (payload: Record<string, unknown>): FinalAssessmentSummary => {
+const buildFinalAssessmentSummary = (payload: Record<string, unknown>, failSeverities: string | null = null): FinalAssessmentSummary => {
   const severityCounts = new Map<string, number>();
   let highestSeverity: string | null = null;
   let highestSeverityIndex = severityOrder.length;
@@ -544,6 +575,11 @@ const buildFinalAssessmentSummary = (payload: Record<string, unknown>): FinalAss
   // Final Assessment JSON structure: { "Vulnerabilities": [...], ... }
   // Check for Vulnerabilities array (capital V)
   const vulnerabilities = Array.isArray(payload.Vulnerabilities) ? payload.Vulnerabilities : [];
+  
+  // Parse failSeverities threshold if provided
+  const thresholdSet: Set<string> | null = failSeverities
+    ? new Set(failSeverities.split(",").map((s) => s.trim().toUpperCase()))
+    : null;
   
   // Process each vulnerability
   for (const vulnEntry of vulnerabilities) {
@@ -596,7 +632,7 @@ const buildFinalAssessmentSummary = (payload: Record<string, unknown>): FinalAss
       }
     }
     
-    // Extract finding data for top findings
+    // Extract finding data
     const finding: FinalAssessmentFinding = {
       finding: typeof vuln.Finding === "string" ? vuln.Finding : "",
       riskLevel: severity,
@@ -609,21 +645,27 @@ const buildFinalAssessmentSummary = (payload: Record<string, unknown>): FinalAss
     findings.push(finding);
   }
   
-  // Sort findings by severity (same logic as Trivy)
+  // Filter and sort findings by severity
   const rankSeverity = (value: string) => {
     const idx = severityOrder.indexOf(value);
     return idx === -1 ? severityOrder.length : idx;
   };
   
-  const prioritizedFindings = findings
+  // Filter findings by threshold if provided, otherwise show all
+  let filteredFindings = findings;
+  if (thresholdSet && thresholdSet.size > 0) {
+    filteredFindings = findings.filter((finding) => thresholdSet.has(finding.riskLevel));
+  }
+  
+  // Sort by severity (most severe first)
+  const prioritizedFindings = filteredFindings
     .sort((a, b) => {
       const aRank = rankSeverity(a.riskLevel);
       const bRank = rankSeverity(b.riskLevel);
       if (aRank !== bRank) return aRank - bRank;
       // If same severity, maintain original order
       return 0;
-    })
-    .slice(0, 20); // Limit to top 20 findings
+    });
   
   // Sort severity counts by severity order
   const sortedSeverity = severityOrder
@@ -936,6 +978,190 @@ const buildCodeqlSummary = (payload: Record<string, unknown>): CodeqlSummary => 
       averageScore,
       scoredFindings: securitySeverityScores.length
     }
+  };
+};
+
+// Parse the SonarQube JSON into a summary with findings and severity counts.
+// SonarQube structure: { "total": number, "issues": [...], "effortTotal": string, "components": [...] }
+const buildSonarqubeSummary = (payload: Record<string, unknown>): SonarqubeSummary => {
+  const severityCounts = new Map<string, number>();
+  const typeCounts = { VULNERABILITY: 0, CODE_SMELL: 0 };
+  let highestSeverity: string | null = null;
+  let highestSeverityIndex = sonarqubeSeverityOrder.length;
+  const findings: SonarqubeFinding[] = [];
+  const ruleCounts = new Map<string, { count: number; highestSeverity: string | null }>();
+  const fileCounts = new Map<string, { count: number; highestSeverity: string | null }>();
+  const effortMinutes: number[] = [];
+  
+  // Extract issues array
+  const issues = Array.isArray(payload.issues) ? payload.issues : [];
+  const effortTotal = typeof payload.effortTotal === "number" ? payload.effortTotal : 0;
+  
+  // Process each issue
+  for (const issueEntry of issues) {
+    if (typeof issueEntry !== "object" || issueEntry === null) continue;
+    const issue = issueEntry as Record<string, unknown>;
+    
+    // Extract severity (BLOCKER, CRITICAL, MAJOR, MINOR, INFO)
+    const severity = typeof issue.severity === "string" ? issue.severity.toUpperCase() : "INFO";
+    const severityIndex = sonarqubeSeverityOrder.indexOf(severity);
+    
+    // Track highest severity
+    if (severityIndex !== -1 && severityIndex < highestSeverityIndex) {
+      highestSeverityIndex = severityIndex;
+      highestSeverity = severity;
+    }
+    
+    // Count by severity
+    severityCounts.set(severity, (severityCounts.get(severity) ?? 0) + 1);
+    
+    // Extract type (VULNERABILITY or CODE_SMELL)
+    const type = typeof issue.type === "string" ? issue.type.toUpperCase() : "CODE_SMELL";
+    if (type === "VULNERABILITY") {
+      typeCounts.VULNERABILITY += 1;
+    } else {
+      typeCounts.CODE_SMELL += 1;
+    }
+    
+    // Extract component (file path)
+    const component = typeof issue.component === "string" ? issue.component : "";
+    // Extract file path from component (format: "project:path/to/file.py")
+    const filePath = component.includes(":") ? component.split(":").slice(1).join(":") : component;
+    
+    // Extract line number
+    const line = typeof issue.line === "number" ? issue.line : 0;
+    
+    // Extract rule ID
+    const rule = typeof issue.rule === "string" ? issue.rule : "";
+    
+    // Extract message
+    const message = typeof issue.message === "string" ? issue.message : "";
+    
+    // Extract effort (format: "5min", "10min", etc.)
+    const effort = typeof issue.effort === "string" ? issue.effort : "0min";
+    // Parse effort to minutes for average calculation
+    const effortMatch = effort.match(/(\d+)/);
+    if (effortMatch) {
+      const minutes = parseInt(effortMatch[1], 10);
+      if (!isNaN(minutes)) {
+        effortMinutes.push(minutes);
+      }
+    }
+    
+    // Extract tags
+    const tags = Array.isArray(issue.tags) 
+      ? (issue.tags as unknown[]).filter((tag): tag is string => typeof tag === "string")
+      : [];
+    
+    // Extract key
+    const key = typeof issue.key === "string" ? issue.key : "";
+    
+    // Track rule breakdown
+    if (rule) {
+      const ruleKey = rule.toLowerCase();
+      const ruleExisting = ruleCounts.get(ruleKey);
+      if (!ruleExisting) {
+        ruleCounts.set(ruleKey, { count: 1, highestSeverity: severity });
+      } else {
+        ruleExisting.count += 1;
+        const currentRank = ruleExisting.highestSeverity ? sonarqubeSeverityOrder.indexOf(ruleExisting.highestSeverity) : sonarqubeSeverityOrder.length;
+        if (severityIndex !== -1 && (currentRank === -1 || severityIndex < currentRank)) {
+          ruleExisting.highestSeverity = severity;
+        }
+      }
+    }
+    
+    // Track file breakdown
+    if (filePath) {
+      const fileKey = filePath.toLowerCase();
+      const fileExisting = fileCounts.get(fileKey);
+      if (!fileExisting) {
+        fileCounts.set(fileKey, { count: 1, highestSeverity: severity });
+      } else {
+        fileExisting.count += 1;
+        const currentRank = fileExisting.highestSeverity ? sonarqubeSeverityOrder.indexOf(fileExisting.highestSeverity) : sonarqubeSeverityOrder.length;
+        if (severityIndex !== -1 && (currentRank === -1 || severityIndex < currentRank)) {
+          fileExisting.highestSeverity = severity;
+        }
+      }
+    }
+    
+    findings.push({
+      key,
+      rule,
+      severity,
+      type,
+      component,
+      line,
+      message,
+      effort,
+      tags
+    });
+  }
+  
+  // Sort findings by severity
+  const rankSonarqubeSeverity = (value: string) => {
+    const idx = sonarqubeSeverityOrder.indexOf(value);
+    return idx === -1 ? sonarqubeSeverityOrder.length : idx;
+  };
+  
+  const prioritizedFindings = findings
+    .sort((a, b) => {
+      const aRank = rankSonarqubeSeverity(a.severity);
+      const bRank = rankSonarqubeSeverity(b.severity);
+      if (aRank !== bRank) return aRank - bRank;
+      // If same severity, sort by type (VULNERABILITY first)
+      if (a.type !== b.type) {
+        return a.type === "VULNERABILITY" ? -1 : 1;
+      }
+      // Then by rule ID
+      return a.rule.localeCompare(b.rule);
+    });
+  
+  // Sort severity counts
+  const sortedSeverity = sonarqubeSeverityOrder
+    .filter((severity) => severityCounts.has(severity))
+    .map((severity) => ({
+      severity,
+      count: severityCounts.get(severity) ?? 0
+    }));
+  
+  // Sort rule breakdown
+  const sortedRules = Array.from(ruleCounts.entries())
+    .map(([ruleId, data]) => ({ ruleId, ...data }))
+    .sort((a, b) => {
+      const aRank = a.highestSeverity ? sonarqubeSeverityOrder.indexOf(a.highestSeverity) : sonarqubeSeverityOrder.length;
+      const bRank = b.highestSeverity ? sonarqubeSeverityOrder.indexOf(b.highestSeverity) : sonarqubeSeverityOrder.length;
+      if (aRank !== bRank) return aRank - bRank;
+      return b.count - a.count;
+    });
+  
+  // Sort file breakdown
+  const sortedFiles = Array.from(fileCounts.entries())
+    .map(([filePath, data]) => ({ filePath, ...data }))
+    .sort((a, b) => {
+      const aRank = a.highestSeverity ? sonarqubeSeverityOrder.indexOf(a.highestSeverity) : sonarqubeSeverityOrder.length;
+      const bRank = b.highestSeverity ? sonarqubeSeverityOrder.indexOf(b.highestSeverity) : sonarqubeSeverityOrder.length;
+      if (aRank !== bRank) return aRank - bRank;
+      return b.count - a.count;
+    });
+  
+  // Calculate effort stats
+  const totalEffortStr = effortTotal > 0 ? `${effortTotal}min` : "0min";
+  const averageEffort = effortMinutes.length > 0
+    ? `${Math.round((effortMinutes.reduce((sum, val) => sum + val, 0) / effortMinutes.length) * 10) / 10}min`
+    : "0min";
+  
+  return {
+    totalFindings: findings.length,
+    severityCounts: sortedSeverity,
+    typeCounts,
+    highestSeverity,
+    totalEffort: totalEffortStr,
+    averageEffort,
+    ruleBreakdown: sortedRules,
+    fileBreakdown: sortedFiles,
+    topFindings: prioritizedFindings
   };
 };
 
@@ -1784,6 +2010,174 @@ const CodeqlSummaryView = ({
   );
 };
 
+const SonarqubeSummaryView = ({
+  summary
+}: {
+  summary: SonarqubeSummary;
+}) => {
+  const hasNoFindings = summary.totalFindings === 0;
+  const borderColor = hasNoFindings
+    ? "border-emerald-300 dark:border-emerald-500/40"
+    : "border-rose-300 dark:border-rose-500/40";
+  const backgroundColor = hasNoFindings
+    ? "bg-emerald-50 dark:bg-emerald-500/10"
+    : "bg-rose-50 dark:bg-rose-500/10";
+  const labelColor = hasNoFindings
+    ? "text-emerald-700 dark:text-emerald-200"
+    : "text-rose-700 dark:text-rose-200";
+  const valueColor = hasNoFindings
+    ? "text-emerald-900 dark:text-white"
+    : "text-rose-900 dark:text-white";
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <p className="text-sm text-slate-600 dark:text-slate-300">
+          Code quality findings from SonarQube with rule-based detection, issue types, and remediation effort estimates.
+        </p>
+      </div>
+      <div className={`rounded-xl border px-4 py-5 ${borderColor} ${backgroundColor}`}>
+        <p className={`text-sm ${labelColor}`}>Total findings</p>
+        <p className={`mt-2 text-3xl font-semibold ${valueColor}`}>{summary.totalFindings}</p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {summary.severityCounts.length === 0 ? (
+          <span className="text-sm text-slate-500 dark:text-slate-400">No findings detected.</span>
+        ) : (
+          summary.severityCounts.map((item) => <SeverityBadge key={item.severity} severity={item.severity} count={item.count} />)
+        )}
+      </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition dark:border-slate-800 dark:bg-slate-900/60">
+          <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Issue types</h4>
+          <dl className="mt-4 space-y-3 text-sm text-slate-600 dark:text-slate-300">
+            <div className="flex items-center justify-between">
+              <dt>Vulnerabilities</dt>
+              <dd className="text-right text-slate-900 dark:text-slate-100">{summary.typeCounts.VULNERABILITY}</dd>
+            </div>
+            <div className="flex items-center justify-between">
+              <dt>Code smells</dt>
+              <dd className="text-right text-slate-900 dark:text-slate-100">{summary.typeCounts.CODE_SMELL}</dd>
+            </div>
+            <div className="flex items-center justify-between">
+              <dt>Highest severity</dt>
+              <dd className="text-right">
+                <SeverityBadge severity={summary.highestSeverity ?? "INFO"} />
+              </dd>
+            </div>
+          </dl>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition dark:border-slate-800 dark:bg-slate-900/60">
+          <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Remediation effort</h4>
+          <dl className="mt-4 space-y-3 text-sm text-slate-600 dark:text-slate-300">
+            <div className="flex items-center justify-between">
+              <dt>Total effort</dt>
+              <dd className="text-right text-slate-900 dark:text-slate-100">{summary.totalEffort}</dd>
+            </div>
+            <div className="flex items-center justify-between">
+              <dt>Average per issue</dt>
+              <dd className="text-right text-slate-900 dark:text-slate-100">{summary.averageEffort}</dd>
+            </div>
+          </dl>
+        </div>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition dark:border-slate-800 dark:bg-slate-900/60">
+          <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Rule breakdown</h4>
+          {summary.ruleBreakdown.length === 0 ? (
+            <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">No rules triggered findings.</p>
+          ) : (
+            <ul className="mt-4 space-y-2 text-sm text-slate-600 dark:text-slate-300">
+              {summary.ruleBreakdown.map((item) => (
+                <li key={item.ruleId} className="flex items-center justify-between">
+                  <span className="font-medium text-slate-900 dark:text-slate-100">{item.ruleId}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-500 dark:text-slate-400">{item.count}</span>
+                    {item.highestSeverity && <SeverityBadge severity={item.highestSeverity} />}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition dark:border-slate-800 dark:bg-slate-900/60">
+          <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">File breakdown</h4>
+          {summary.fileBreakdown.length === 0 ? (
+            <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">No files with findings detected.</p>
+          ) : (
+            <ul className="mt-4 space-y-2 text-sm text-slate-600 dark:text-slate-300">
+              {summary.fileBreakdown.map((item) => (
+                <li key={item.filePath} className="flex items-center justify-between">
+                  <span className="font-medium text-slate-900 dark:text-slate-100 break-all">{item.filePath}</span>
+                  <div className="flex items-center gap-2 ml-2">
+                    <span className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{item.count}</span>
+                    {item.highestSeverity && <SeverityBadge severity={item.highestSeverity} />}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+      <div className="space-y-3">
+        <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Top findings</h4>
+        {summary.topFindings.length === 0 ? (
+          <p className="text-sm text-slate-500 dark:text-slate-400">No findings reported.</p>
+        ) : (
+          <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800">
+            <div className="max-h-96 overflow-y-auto">
+              <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800">
+                <thead className="bg-slate-100 dark:bg-slate-900/70">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Severity</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Type</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Vulnerability</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Message</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Effort</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 bg-white dark:divide-slate-900 dark:bg-slate-950/40">
+                  {summary.topFindings.map((finding) => (
+                    <tr key={finding.key} className="hover:bg-slate-50 dark:hover:bg-slate-900/60">
+                      <td className="px-4 py-3 text-sm font-semibold uppercase text-slate-900 dark:text-slate-100">
+                        <SeverityBadge severity={finding.severity} />
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300">
+                        <span className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${
+                          finding.type === "VULNERABILITY"
+                            ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200"
+                            : "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
+                        }`}>
+                          {finding.type === "VULNERABILITY" ? "Vuln" : "Smell"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-900 dark:text-slate-100">
+                        <p className="font-medium">{finding.rule}</p>
+                        {finding.component && (
+                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                            {finding.component.includes(":") ? finding.component.split(":").slice(1).join(":") : finding.component}
+                            {finding.line > 0 ? `:${finding.line}` : ""}
+                          </p>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300">
+                        {finding.message}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300">
+                        {finding.effort}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 export const RunPage = () => {
   const { projectId, runId } = useParams<{ projectId: string; runId: string }>();
   const { data, loading, error } = useApi(() => fetchRunDetail(projectId ?? "", runId ?? ""), [projectId, runId]);
@@ -1800,14 +2194,13 @@ export const RunPage = () => {
   const [codeqlRaw, setCodeqlRaw] = useState<string | null>(null);
   // [DOCKER INSPECT - TEMPORARILY DISABLED] - Docker Inspect state
   // const [dockerInspectRaw, setDockerInspectRaw] = useState<string | null>(null);
-  // [SONARQUBE - TEMPORARILY DISABLED] - SonarQube state
-  // const [sonarqubeRaw, setSonarqubeRaw] = useState<string | null>(null);
+  const [sonarqubeRaw, setSonarqubeRaw] = useState<string | null>(null);
+  const [sonarqubeSummary, setSonarqubeSummary] = useState<SonarqubeSummary | null>(null);
   const [finalAssessmentError, setFinalAssessmentError] = useState<string | null>(null);
   const [codeqlError, setCodeqlError] = useState<string | null>(null);
   // [DOCKER INSPECT - TEMPORARILY DISABLED] - Docker Inspect error state
   // const [dockerInspectError, setDockerInspectError] = useState<string | null>(null);
-  // [SONARQUBE - TEMPORARILY DISABLED] - SonarQube error state
-  // const [sonarqubeError, setSonarqubeError] = useState<string | null>(null);
+  const [sonarqubeError, setSonarqubeError] = useState<string | null>(null);
   const [sbomError, setSbomError] = useState<string | null>(null);
   const [trivyError, setTrivyError] = useState<string | null>(null);
   const [loadingArtifacts, setLoadingArtifacts] = useState<boolean>(false);
@@ -1910,7 +2303,17 @@ export const RunPage = () => {
             fetchArtifact(projectId, runId, "finalassessment")
               .then((payload) => {
                 if (cancelled) return;
-                setFinalAssessmentSummary(buildFinalAssessmentSummary(payload as Record<string, unknown>));
+                // Extract failSeverities from metadata for threshold filtering
+                const metadata = data?.metadata ?? {};
+                const assessment = typeof metadata.assessment === "object" && metadata.assessment !== null ? (metadata.assessment as Record<string, unknown>) : null;
+                const trivyConfig = assessment && typeof assessment.trivy === "object" && assessment.trivy !== null ? (assessment.trivy as Record<string, unknown>) : null;
+                const failSeverities =
+                  trivyConfig && typeof trivyConfig.failSeverities === "string"
+                    ? trivyConfig.failSeverities
+                    : trivyConfig && typeof trivyConfig.fail_levels === "string"
+                      ? trivyConfig.fail_levels
+                      : null;
+                setFinalAssessmentSummary(buildFinalAssessmentSummary(payload as Record<string, unknown>, failSeverities));
                 setFinalAssessmentRaw(formatJson(payload));
                 setFinalAssessmentError(null);
               })
@@ -1978,30 +2381,32 @@ export const RunPage = () => {
         //   setDockerInspectRaw(null);
         //   setDockerInspectError(null);
         // }
-        // [SONARQUBE - TEMPORARILY DISABLED] - SonarQube fetching logic
-        // const hasSonarqube = data.artifacts.some(
-        //   (artifact) => artifact.artifact_type === "sonarqube" && artifact.blob_name.endsWith("sonarqube_scan.json") && !artifact.blob_name.endsWith(".sig")
-        // );
-        // if (hasSonarqube) {
-        //   requests.push(
-        //     fetchArtifact(projectId, runId, "sonarqube")
-        //       .then((payload) => {
-        //         if (cancelled) return;
-        //         setSonarqubeRaw(formatJson(payload));
-        //         setSonarqubeError(null);
-        //       })
-        //       .catch((err) => {
-        //         if (cancelled) return;
-        //         const errorMessage = err instanceof Error ? err.message : "Failed to load SonarQube artifact";
-        //         console.error("Failed to load SonarQube:", err);
-        //         setSonarqubeRaw(null);
-        //         setSonarqubeError(errorMessage);
-        //       })
-        //   );
-        // } else {
-        //   setSonarqubeRaw(null);
-        //   setSonarqubeError(null);
-        // }
+        const hasSonarqube = data.artifacts.some(
+          (artifact) => artifact.artifact_type === "sonarqube" && artifact.blob_name.endsWith("sonarqube_scan.json") && !artifact.blob_name.endsWith(".sig")
+        );
+        if (hasSonarqube) {
+          requests.push(
+            fetchArtifact(projectId, runId, "sonarqube")
+              .then((payload) => {
+                if (cancelled) return;
+                setSonarqubeRaw(formatJson(payload));
+                setSonarqubeSummary(buildSonarqubeSummary(payload as Record<string, unknown>));
+                setSonarqubeError(null);
+              })
+              .catch((err) => {
+                if (cancelled) return;
+                const errorMessage = err instanceof Error ? err.message : "Failed to load SonarQube artifact";
+                console.error("Failed to load SonarQube:", err);
+                setSonarqubeRaw(null);
+                setSonarqubeSummary(null);
+                setSonarqubeError(errorMessage);
+              })
+          );
+        } else {
+          setSonarqubeRaw(null);
+          setSonarqubeSummary(null);
+          setSonarqubeError(null);
+        }
         await Promise.all(requests);
       } catch (err) {
         // Individual artifact errors are handled in their respective catch blocks
@@ -2125,11 +2530,10 @@ export const RunPage = () => {
   //     (artifact) => artifact.artifact_type === "dockerinspect" && artifact.blob_name.endsWith("docker-inspect.json") && !artifact.blob_name.endsWith(".sig")
   //   );
 
-  // [SONARQUBE - TEMPORARILY DISABLED] - SonarQube helper function
-  // const findSonarqubeArtifact = () =>
-  //   data?.artifacts.find(
-  //     (artifact) => artifact.artifact_type === "sonarqube" && artifact.blob_name.endsWith("sonarqube_scan.json") && !artifact.blob_name.endsWith(".sig")
-  //   );
+  const findSonarqubeArtifact = () =>
+    data?.artifacts.find(
+      (artifact) => artifact.artifact_type === "sonarqube" && artifact.blob_name.endsWith("sonarqube_scan.json") && !artifact.blob_name.endsWith(".sig")
+    );
 
   // [SWFT AI ASSISTANT - TEMPORARILY DISABLED] - Assistant functionality
   // const buildAssistantButton = (facetType: AssistantFacet, prompt: string) => (
@@ -2245,15 +2649,79 @@ export const RunPage = () => {
                 ))
               )}
             </div>
+            {(() => {
+              // Parse finalAssessmentRaw to extract Severity Posture fields
+              let processedAt: string | null = null;
+              let overallRisk: string | null = null;
+              let determination: string | null = null;
+              
+              try {
+                if (finalAssessmentRaw) {
+                  const parsed = JSON.parse(finalAssessmentRaw) as Record<string, unknown>;
+                  processedAt = typeof parsed.ProcessedAt === "string" ? parsed.ProcessedAt : null;
+                  overallRisk = typeof parsed.RiskLevel === "string" ? parsed.RiskLevel.toUpperCase() : null;
+                  determination = typeof parsed.Determination === "string" ? parsed.Determination : null;
+                }
+              } catch (err) {
+                // If parsing fails, fields remain null
+                console.debug("Failed to parse finalAssessmentRaw for Severity Posture:", err);
+              }
+              
+              const formatDate = (value: string | null) => (value ? new Date(value).toLocaleString() : "—");
+              
+              return (
+                <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition dark:border-slate-800 dark:bg-slate-900/60">
+                  <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Severity Posture</h4>
+                  <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+                    Assessment metadata and overall risk determination from the final assessment.
+                  </p>
+                  <dl className="mt-4 space-y-3 text-sm text-slate-600 dark:text-slate-300">
+                    <div className="flex items-center justify-between">
+                      <dt>Processed</dt>
+                      <dd>{formatDate(processedAt)}</dd>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <dt>Overall risk</dt>
+                      <dd>
+                        {overallRisk ? (
+                          <SeverityBadge severity={overallRisk} />
+                        ) : (
+                          <span className="text-slate-400 dark:text-slate-500">—</span>
+                        )}
+                      </dd>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <dt>Assessment findings</dt>
+                      <dd>
+                        {data?.summary.final_assessment_findings_total !== null && data?.summary.final_assessment_findings_failset !== null
+                          ? `${data.summary.final_assessment_findings_total} total / ${data.summary.final_assessment_findings_failset} above threshold`
+                          : "—"}
+                      </dd>
+                    </div>
+                    {determination && (
+                      <div className="flex flex-col gap-2">
+                        <dt className="font-medium">Determination</dt>
+                        <dd className="max-h-[32rem] overflow-y-auto rounded-xl border border-slate-200 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/60">
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            className="prose prose-slate max-w-none dark:prose-invert prose-headings:scroll-mt-16"
+                          >
+                            {determination}
+                          </ReactMarkdown>
+                        </dd>
+                      </div>
+                    )}
+                  </dl>
+                </div>
+              );
+            })()}
             <div className="space-y-3">
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Top findings</h4>
+                <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Findings Above Threshold</h4>
                 <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3">
                   <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Source</span>
                   <div className="flex flex-wrap gap-2">
-                    {/* [SONARQUBE - TEMPORARILY DISABLED] - SonarQube removed from source filter */}
-                    {/* {["CodeQL", "Trivy", "SonarQube"].map((source) => { */}
-                    {["CodeQL", "Trivy"].map((source) => {
+                    {["CodeQL", "Trivy", "SonarQube"].map((source) => {
                       const selected = sourceFilter === source;
                       return (
                         <button
@@ -2449,8 +2917,7 @@ export const RunPage = () => {
           <p className="text-sm text-slate-500 dark:text-slate-400">No Docker Inspect artifact was captured for this run.</p>
         )}
       </CollapsibleSection> */}
-      {/* [SONARQUBE - TEMPORARILY DISABLED] - SonarQube section */}
-      {/* <CollapsibleSection
+      <CollapsibleSection
         title="Code quality analysis (SonarQube)"
         description="Findings reported by SonarQube across the source code."
         actions={
@@ -2463,14 +2930,12 @@ export const RunPage = () => {
           <LoadingState message="Loading SonarQube" />
         ) : sonarqubeError ? (
           <ErrorState message={sonarqubeError} />
-        ) : sonarqubeRaw ? (
-          <div className="text-sm text-slate-500 dark:text-slate-400">
-            Content placeholder - to be implemented
-          </div>
+        ) : sonarqubeRaw && sonarqubeSummary ? (
+          <SonarqubeSummaryView summary={sonarqubeSummary} />
         ) : (
           <p className="text-sm text-slate-500 dark:text-slate-400">No SonarQube artifact was captured for this run.</p>
         )}
-      </CollapsibleSection> */}
+      </CollapsibleSection>
       {/* [APPDESIGN - TEMPORARILY DISABLED] - Architecture context section */}
       {/* <CollapsibleSection
         title="Architecture context (app-design.md)"

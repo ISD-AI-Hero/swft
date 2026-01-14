@@ -55,18 +55,43 @@ class ArtifactCatalogService:
         """Return summaries of all projects discovered via run manifests."""
         key = "projects"
         def loader() -> Sequence[ProjectSummary]:
-            groups: dict[str, list[datetime | None]] = defaultdict(list)
+            # Track both timestamps and run_ids for each project
+            project_data: dict[str, list[tuple[datetime | None, str]]] = defaultdict(list)
             for record in self._list_container(self._settings.storage.container_runs, required=True):
                 logger.info("Parsing blob name: %s", record.name)
-                project_id, _run_id, _artifact = parse_blob_key(record.name, self._settings.storage.delimiter)
-                if record.last_modified:
-                    groups[project_id].append(record.last_modified)
-                else:
-                    groups[project_id].append(None)
+                try:
+                    project_id, run_id, _artifact = parse_blob_key(record.name, self._settings.storage.delimiter)
+                    project_data[project_id].append((record.last_modified, run_id))
+                except RepositoryError as exc:
+                    logger.debug("Skipping blob '%s' in container '%s': %s", record.name, self._settings.storage.container_runs, exc)
+                    continue
+            
             summaries: list[ProjectSummary] = []
-            for project_id, timestamps in groups.items():
-                latest = max((ts for ts in timestamps if ts is not None), default=None)
-                summaries.append(ProjectSummary(project_id=project_id, run_count=len(timestamps), latest_run_at=latest))
+            for project_id, run_data in project_data.items():
+                # Find the latest run by timestamp
+                latest_timestamp = None
+                latest_run_id = None
+                for timestamp, run_id in run_data:
+                    if timestamp is not None:
+                        if latest_timestamp is None or timestamp > latest_timestamp:
+                            latest_timestamp = timestamp
+                            latest_run_id = run_id
+                
+                # Get overall risk level from latest run if available
+                latest_overall_risk_level = None
+                if latest_run_id:
+                    try:
+                        descriptors = self._collect_artifacts(project_id, latest_run_id)
+                        latest_overall_risk_level = self._final_assessment_overall_risk_level(descriptors)
+                    except Exception as exc:
+                        logger.debug("Failed to get overall risk level for project '%s' run '%s': %s", project_id, latest_run_id, exc)
+                
+                summaries.append(ProjectSummary(
+                    project_id=project_id,
+                    run_count=len(run_data),
+                    latest_run_at=latest_timestamp,
+                    latest_overall_risk_level=latest_overall_risk_level
+                ))
             summaries.sort(key=lambda item: item.project_id)
             return summaries
         return self._cache_get(key, loader)  # type: ignore[return-value]
