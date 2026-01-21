@@ -4,12 +4,44 @@ import { Link } from "react-router-dom";
 import type { ProjectSummary } from "@lib/types";
 
 const formatDate = (value: string | null) => (value ? new Date(value).toLocaleString() : "—");
+
+const severityOrder = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"];
+const severityColors: Record<string, string> = {
+  CRITICAL:
+    "border border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/20 dark:text-rose-200",
+  HIGH:
+    "border border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-500/40 dark:bg-orange-500/20 dark:text-orange-200",
+  MEDIUM:
+    "border border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/20 dark:text-amber-200",
+  LOW:
+    "border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/20 dark:text-emerald-200",
+  UNKNOWN:
+    "border border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-600/40 dark:bg-slate-600/30 dark:text-slate-200",
+};
+
+const SeverityBadge = ({ severity }: { severity: string }) => {
+  const style = severityColors[severity] ?? severityColors.UNKNOWN;
+  return (
+    <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold ${style}`}>
+      <span>{severity}</span>
+    </span>
+  );
+};
+
 const headers = [
   { key: "index", label: "#", sortable: false },
   { key: "project", label: "Project", sortable: true },
+  { key: "latestrisk", label: "Latest Overall Risk", sortable: true },
   { key: "runs", label: "Runs", sortable: true },
   { key: "latest", label: "Latest run", sortable: true }
 ] as const;
+
+const riskLevelRank = (riskLevel: string | null): number => {
+  if (!riskLevel) return severityOrder.length;
+  const normalized = riskLevel.toUpperCase();
+  const index = severityOrder.indexOf(normalized);
+  return index === -1 ? severityOrder.length : index;
+};
 
 // Column-aware sorter so we can reuse the same table for name, run count, and timestamp views.
 const sortProjects = (projects: ProjectSummary[], column: string, direction: "asc" | "desc") => {
@@ -17,6 +49,12 @@ const sortProjects = (projects: ProjectSummary[], column: string, direction: "as
     switch (column) {
       case "project": {
         return a.project_id.localeCompare(b.project_id, undefined, { sensitivity: "base" });
+      }
+      case "latestrisk": {
+        // Sort by severity order (CRITICAL first, then HIGH, MEDIUM, LOW, UNKNOWN, then nulls)
+        const aRank = riskLevelRank(a.latest_overall_risk_level);
+        const bRank = riskLevelRank(b.latest_overall_risk_level);
+        return aRank - bRank;
       }
       case "runs": {
         return a.run_count - b.run_count;
@@ -89,6 +127,13 @@ export const ProjectTable = ({ projects }: { projects: ProjectSummary[] }) => {
                 <Link to={`/projects/${project.project_id}`} className="font-semibold text-slate-900 transition hover:text-blue-500 dark:text-white dark:hover:text-blue-300">
                   {project.project_id}
                 </Link>
+              </td>
+              <td className="px-4 py-3 text-sm">
+                {project.latest_overall_risk_level ? (
+                  <SeverityBadge severity={project.latest_overall_risk_level} />
+                ) : (
+                  <span className="text-slate-400 dark:text-slate-500">—</span>
+                )}
               </td>
               <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">{project.run_count}</td>
               <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">{formatDate(project.latest_run_at)}</td>

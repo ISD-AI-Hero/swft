@@ -26,6 +26,9 @@ def _summary_model(summary) -> RunSummaryModel:
         cosign_status=summary.cosign_status,
         trivy_findings_total=summary.trivy_findings_total,
         trivy_findings_failset=summary.trivy_findings_failset,
+        final_assessment_findings_total=summary.final_assessment_findings_total,
+        final_assessment_findings_failset=summary.final_assessment_findings_failset,
+        final_assessment_overall_risk_level=summary.final_assessment_overall_risk_level,
         deployment_url=summary.deployment_url,
     )
 

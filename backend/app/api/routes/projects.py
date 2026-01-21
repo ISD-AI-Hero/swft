@@ -15,7 +15,7 @@ router = APIRouter(prefix="/projects", tags=["projects"])
 logger = logging.getLogger("swft.backend.projects")
 
 
-def _to_model(summary) -> ProjectSummaryModel: return ProjectSummaryModel(project_id=summary.project_id, run_count=summary.run_count, latest_run_at=summary.latest_run_at)
+def _to_model(summary) -> ProjectSummaryModel: return ProjectSummaryModel(project_id=summary.project_id, run_count=summary.run_count, latest_run_at=summary.latest_run_at, latest_overall_risk_level=summary.latest_overall_risk_level)
 
 
 @router.get("", response_model=Sequence[ProjectSummaryModel])

@@ -1,11 +1,12 @@
 // Artifact identifiers supported by the backend.
-export type ArtifactType = "sbom" | "trivy" | "run" | "appdesign";
+export type ArtifactType = "sbom" | "trivy" | "run" | "appdesign" | "codeql" | "sonarqube" | "dockerinspect" | "finalassessment" | "other";
 
 // Lightweight project list entry.
 export interface ProjectSummary {
   project_id: string;
   run_count: number;
   latest_run_at: string | null;
+  latest_overall_risk_level: string | null;
 }
 
 // Aggregated run row used in tables/charts.
@@ -18,6 +19,9 @@ export interface RunSummary {
   cosign_status: string | null;
   trivy_findings_total: number | null;
   trivy_findings_failset: number | null;
+  final_assessment_findings_total: number | null;
+  final_assessment_findings_failset: number | null;
+  final_assessment_overall_risk_level: string | null;
   deployment_url: string | null;
 }
 
