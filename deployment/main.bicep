@@ -192,10 +192,23 @@ module backendAppService 'br/public:avm/res/web/site:0.12.0' = {
           name: 'AZURE_STORAGE_CONTAINER_RUNS'
           value: 'runs'
         }
-        {
-          name: 'AZURE_STORAGE_CONTAINER_APPDESIGN'
-          value: 'appdesign'
+          {
+          name: 'OPENAI_PROVIDER'
+          value: 'azure'
         }
+        {
+          name: 'OPENAI_API_KEY'
+          value: '<KeyGoesHere>'  // In the future, use Key Vault reference
+        }
+        {
+          name: 'OPENAI_API_BASE'
+          value: 'https://scai-ai.openai.azure.us/'
+          // For dynamic reference when OpenAI module is deployed, use: openAI.outputs.endpoint
+        }
+        {
+          name: 'OPENAI_API_VERSION'
+          value: '2024-11-20'
+        }      
         {
           name: 'AZURE_TENANT_ID'
           value: azureTenantId
