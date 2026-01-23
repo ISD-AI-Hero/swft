@@ -77,6 +77,28 @@ def _message_payload(role: str, content: str) -> dict[str, object]:
     }
 
 
+def _convert_messages_for_chat_completions(messages: list[dict[str, object]]) -> list[dict[str, str]]:
+    """Convert Responses API message format to Chat Completions format.
+    
+    Responses API format: {"role": "user", "content": [{"type": "input_text", "text": "..."}]}
+    Chat Completions format: {"role": "user", "content": "..."}
+    
+    Azure OpenAI Responses API is enabled only for api-version 2025-03-01-preview and later
+    and is not currently supported in US Gov regions as of JAN 23 2026
+    """
+    converted = []
+    for msg in messages:
+        role = msg.get("role", "")
+        content = msg.get("content", [])
+        # Extract text from Responses API format
+        if isinstance(content, list) and len(content) > 0:
+            text = content[0].get("text", "") if isinstance(content[0], dict) else str(content[0])
+        else:
+            text = str(content) if content else ""
+        converted.append({"role": role, "content": text})
+    return converted
+
+
 class AssistantService:
     """High-level façade orchestrating prompt assembly and model calls."""
 
@@ -97,11 +119,6 @@ class AssistantService:
         self._catalog: ArtifactCatalogService | None = catalog
 
     def _build_client(self, provider: Provider) -> OpenAI | AzureOpenAI:
-        if provider == "azure":
-            if not self._settings.api_base:
-                raise ValueError("OPENAI_API_BASE must be set for Azure OpenAI.")
-            if not self._settings.api_version:
-                raise ValueError("OPENAI_API_VERSION must be set for Azure OpenAI.")
         if not self._settings.api_key:
             raise ValueError("Assistant is not configured. Set OPENAI_API_KEY in the backend environment.")
         if provider == "azure":
@@ -160,44 +177,88 @@ class AssistantService:
 
     def _invoke_model(self, messages: list[dict[str, object]], model_descriptor: ModelDescriptor, provider: Provider):
         model_identifier = model_descriptor.resolve_identifier(provider)
-        request_kwargs = {
-            "model": model_identifier,
-            "input": messages,
-        }
-        if descriptor.max_output_tokens:
-            request_kwargs["max_output_tokens"] = descriptor.max_output_tokens
         client = self._ensure_client()
-        try:
-            response = client.responses.create(**request_kwargs)
-        except RateLimitError as exc:
-            logger.warning("Rate limit from provider %s: %s", provider, exc)
-            raise
-        except (APIConnectionError, TimeoutException) as exc:
-            logger.error("Connectivity issue reaching provider %s: %s", provider, exc)
-            raise
-        except APIStatusError as exc:
-            logger.error("Provider %s returned %s: %s", provider, exc.status_code, exc.message)
-            raise
-        except (BadRequestError, OpenAIError) as exc:
-            logger.exception("Unexpected error invoking model")
-            raise
+        
+        # Azure OpenAI Responses API is enabled only for api-version 2025-03-01-preview and later
+        # and is not currently supported in US Gov regions as of JAN 23 2026. Use Chat Completions API for Azure.
+        if provider == "azure":
+            # Convert messages to Chat Completions format
+            chat_messages = _convert_messages_for_chat_completions(messages)
+            request_kwargs = {
+                "model": model_identifier,
+                "messages": chat_messages,
+            }
+            if model_descriptor.max_output_tokens:
+                request_kwargs["max_tokens"] = model_descriptor.max_output_tokens
+            try:
+                response = client.chat.completions.create(**request_kwargs)
+            except RateLimitError as exc:
+                logger.warning("Rate limit from provider %s: %s", provider, exc)
+                raise
+            except (APIConnectionError, TimeoutException) as exc:
+                logger.error("Connectivity issue reaching provider %s: %s", provider, exc)
+                raise
+            except APIStatusError as exc:
+                logger.error("Provider %s returned %s: %s", provider, exc.status_code, exc.message)
+                raise
+            except (BadRequestError, OpenAIError) as exc:
+                logger.exception("Unexpected error invoking model")
+                raise
+        else:
+            # Use Responses API for OpenAI
+            request_kwargs = {
+                "model": model_identifier,
+                "input": messages,
+            }
+            if model_descriptor.max_output_tokens:
+                request_kwargs["max_output_tokens"] = model_descriptor.max_output_tokens
+            try:
+                response = client.responses.create(**request_kwargs)
+            except RateLimitError as exc:
+                logger.warning("Rate limit from provider %s: %s", provider, exc)
+                raise
+            except (APIConnectionError, TimeoutException) as exc:
+                logger.error("Connectivity issue reaching provider %s: %s", provider, exc)
+                raise
+            except APIStatusError as exc:
+                logger.error("Provider %s returned %s: %s", provider, exc.status_code, exc.message)
+                raise
+            except (BadRequestError, OpenAIError) as exc:
+                logger.exception("Unexpected error invoking model")
+                raise
         return response
 
     @staticmethod
-    def _extract_text(response) -> str:
-        segments: list[str] = []
-        try:
-            for item in getattr(response, "output", []) or []:
-                for content in getattr(item, "content", []) or []:
-                    if getattr(content, "type", None) == "output_text":
-                        segments.append(content.text)
-        except AttributeError:
-            pass
-        text = "".join(segments).strip()
-        if not text:
-            # Fallback to raw serialization.
-            text = str(response)
-        return text
+    def _extract_text(response, provider: Provider) -> str:
+        """Extract text from response, handling both Responses API and Chat Completions formats.
+        
+        Azure OpenAI Responses API is enabled only for api-version 2025-03-01-preview and later
+        and is not currently supported in US Gov regions as of JAN 23 2026
+        """
+        if provider == "azure":
+            # Chat Completions format: response.choices[0].message.content
+            try:
+                if hasattr(response, "choices") and len(response.choices) > 0:
+                    message = response.choices[0].message
+                    if hasattr(message, "content") and message.content:
+                        return message.content.strip()
+            except (AttributeError, IndexError):
+                pass
+        else:
+            # Responses API format: response.output[] with content[].text
+            segments: list[str] = []
+            try:
+                for item in getattr(response, "output", []) or []:
+                    for content in getattr(item, "content", []) or []:
+                        if getattr(content, "type", None) == "output_text":
+                            segments.append(content.text)
+            except AttributeError:
+                pass
+            text = "".join(segments).strip()
+            if text:
+                return text
+        # Fallback to raw serialization.
+        return str(response)
 
     def _resolve_app_design(self, request: ChatRequest) -> str:
         """Load the best available app-design.md context for this request."""
@@ -231,7 +292,7 @@ class AssistantService:
         except (BadRequestError, OpenAIError) as exc:
             raise RuntimeError(f"OpenAI request failed: {exc}") from exc
 
-        answer_text = self._extract_text(response)
+        answer_text = self._extract_text(response, provider)
         # Append assistant reply to history.
         full_history = history_with_user + [ChatMessage(role="assistant", content=answer_text)]
         self._history.persist(conversation_id, full_history)
@@ -284,26 +345,49 @@ class AssistantService:
         accumulator: list[str] = []
         final_response = None
         try:
-            stream_kwargs = {
-                "model": model_identifier,
-                "input": messages,
-            }
-            if descriptor.max_output_tokens:
-                stream_kwargs["max_output_tokens"] = descriptor.max_output_tokens
-            with client.responses.stream(**stream_kwargs) as stream:
-                for event in stream:
-                    event_type = getattr(event, "type", "")
-                    if event_type == "response.output_text.delta":
-                        delta = getattr(event, "delta", "")
-                        if delta:
-                            accumulator.append(delta)
-                            yield json_line({"type": "delta", "delta": delta})
-                    elif event_type == "response.refusal.delta":
-                        delta = getattr(event, "delta", "")
-                        if delta:
-                            accumulator.append(delta)
-                            yield json_line({"type": "delta", "delta": delta})
-                final_response = stream.get_final_response()
+            # Azure OpenAI Responses API is enabled only for api-version 2025-03-01-preview and later
+            # and is not currently supported in US Gov regions as of JAN 23 2026. Use Chat Completions API for Azure.
+            if provider == "azure":
+                # Convert messages to Chat Completions format
+                chat_messages = _convert_messages_for_chat_completions(messages)
+                stream_kwargs = {
+                    "model": model_identifier,
+                    "messages": chat_messages,
+                    "stream": True,
+                }
+                if descriptor.max_output_tokens:
+                    stream_kwargs["max_tokens"] = descriptor.max_output_tokens
+                stream = client.chat.completions.create(**stream_kwargs)
+                for chunk in stream:
+                    if chunk.choices and len(chunk.choices) > 0:
+                        delta = chunk.choices[0].delta
+                        if hasattr(delta, "content") and delta.content:
+                            accumulator.append(delta.content)
+                            yield json_line({"type": "delta", "delta": delta.content})
+                # Chat Completions streaming doesn't have get_final_response(), use accumulator
+                final_response = None
+            else:
+                # Use Responses API for OpenAI
+                stream_kwargs = {
+                    "model": model_identifier,
+                    "input": messages,
+                }
+                if descriptor.max_output_tokens:
+                    stream_kwargs["max_output_tokens"] = descriptor.max_output_tokens
+                with client.responses.stream(**stream_kwargs) as stream:
+                    for event in stream:
+                        event_type = getattr(event, "type", "")
+                        if event_type == "response.output_text.delta":
+                            delta = getattr(event, "delta", "")
+                            if delta:
+                                accumulator.append(delta)
+                                yield json_line({"type": "delta", "delta": delta})
+                        elif event_type == "response.refusal.delta":
+                            delta = getattr(event, "delta", "")
+                            if delta:
+                                accumulator.append(delta)
+                                yield json_line({"type": "delta", "delta": delta})
+                    final_response = stream.get_final_response()
         except RateLimitError:
             logger.exception("OpenAI streaming rate limit exceeded")
             yield json_line({"type": "error", "error": "Rate limit exceeded. Please retry shortly or choose a different model."})
@@ -327,7 +411,7 @@ class AssistantService:
 
         final_text = "".join(accumulator).strip()
         if not final_text and final_response is not None:
-            final_text = self._extract_text(final_response)
+            final_text = self._extract_text(final_response, provider)
         full_history = history_with_user + [ChatMessage(role="assistant", content=final_text)]
         self._history.persist(conversation_id, full_history)
         yield json_line(
