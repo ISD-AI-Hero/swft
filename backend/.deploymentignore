@@ -1,0 +1,17 @@
+# Exclude from Azure App Service Oryx deploy when using requirements.txt.
+# Oryx uses Poetry when it sees pyproject.toml; we use setuptools/PEP 621.
+# Excluding pyproject.toml forces Oryx to use pip + requirements.txt instead.
+pyproject.toml
+setup.cfg
+*.pyc
+__pycache__/
+.git/
+.gitignore
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+tests/
+README.md
+Dockerfile
