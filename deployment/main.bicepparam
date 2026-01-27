@@ -9,7 +9,7 @@ param backendAppServiceName = 'scai-api-dev'
 
 // Backend configuration (update with your actual values)
 param storageAccountName = 'scaistg'
-param storageConnectionString = 'DefaultEndpointsProtocol=https;AccountName=scaistg;AccountKey=f3EotL8xQILaWLggOBCfFIHpVtyxqPkatUIUXNDGpdEIauiazQ0sDtfV2JQdozhFsT7wjXRUYoge+AStXYWy2g==;EndpointSuffix=core.usgovcloudapi.net' // Define or Set this via secure parameter during deployment // Future: dynamically pull from bicep resource declaration
+param storageConnectionString = '' // Define or Set this via secure parameter during deployment // Future: dynamically pull from bicep resource declaration
 param azureTenantId = 'de53bc81-f5be-4d12-92a9-43d47ef8cf2d'
 
 
