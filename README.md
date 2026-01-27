@@ -223,6 +223,8 @@ A Docker image for the demo can still be built with `docker build -t swft-demo s
 
 Workflow file: `.github/workflows/deploy.yml`
 
+The workflow builds, scans, and deploys the **demo** container (`samples/fastapi-demo`) to Azure Container Instances. To deploy the **portal** (backend + frontend) to **Azure App Service** instead—including US Government regions—see **[Deploying to Azure App Service](backend/README.md#deploying-to-azure-app-service)** in `backend/README.md`. That doc covers the backend-only `[tool.poetry]` fix, Docker vs code deploy, and **full-app** options (two App Services vs single App Service).
+
 ## Compliance Authoring Engine CLI (preview)
 
 This repo now ships a Typer-based CLI under the `swft` entrypoint. The CLI will ingest authoritative control catalogs, evidence, and Azure Policy snapshots in later steps; for now it provides configuration inspection plus the Azure Database for PostgreSQL migration runner.
