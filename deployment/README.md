@@ -73,7 +73,10 @@ Compress-Archive -Path dist\* -DestinationPath ..\deployment\frontend-deploy.zip
 cd ..\deployment
 
 # Deploy to Frontend App Service
-az webapp deployment source config-zip -g rg-SCAI-Demo -n scai-ui-dev --src frontend-deploy.zip
+az webapp deploy -g rg-SCAI-Demo -n scai-ui-dev --type zip --src-path .\frontend-deploy.zip --clean
+
+#If there is a timeout issue, use the --track-status option
+az webapp deploy -g rg-SCAI-Demo -n scai-ui-dev --type zip --src-path .\frontend-deploy.zip --clean --track-status false
 
 # Clean up
 Remove-Item frontend-deploy.zip
@@ -88,13 +91,18 @@ Remove-Item frontend-deploy.zip
 cd ..\backend
 
 # Create deployment package (include app folder, pyproject.toml, and lookup data)
-Compress-Archive -Path app,pyproject.toml,README.md,..\lookup -DestinationPath ..\deployment\backend-deploy.zip -Force
+Compress-Archive -Path app,pyproject.toml,requirements.txt,README.md,..\lookup -DestinationPath ..\deployment\backend-deploy.zip -Force
+
 
 # Go back to deployment folder
 cd ..\deployment
 
 # Deploy to Backend App Service
-az webapp deployment source config-zip -g rg-SCAI-Demo -n scai-api-dev --src backend-deploy.zip
+az webapp deploy -g rg-SCAI-Demo -n scai-api-dev --type zip --src-path .\backend-deploy.zip --clean
+
+#If there is a timeout issue, use the --track-status option
+
+az webapp deploy -g rg-SCAI-Demo -n scai-api-dev --type zip --src-path .\backend-deploy.zip --clean --track-status false
 
 # Clean up
 Remove-Item backend-deploy.zip
