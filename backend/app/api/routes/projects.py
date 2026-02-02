@@ -25,7 +25,7 @@ def list_projects(catalog: ArtifactCatalogService = Depends(get_catalog), user: 
         summaries = catalog.list_projects()
     except RepositoryError as exc:
         logger.exception("Failed to list projects")
-        raise HTTPException(status_code=500, detail="Failed to enumerate projects.") from exc
+        raise HTTPException(status_code=500, detail=f"Failed to enumerate projects. {exc!s}") from exc
     if user.allowed_projects:
         # Easy RBAC guard: trim the catalog list to the projects granted by resolve_user.
         summaries = [item for item in summaries if item.project_id in user.allowed_projects]
