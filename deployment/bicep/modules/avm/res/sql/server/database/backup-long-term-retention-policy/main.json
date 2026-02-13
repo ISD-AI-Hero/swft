@@ -1,0 +1,125 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "languageVersion": "2.0",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.32.4.45862",
+      "templateHash": "1446282995445489550"
+    },
+    "name": "SQL Server Database Long Term Backup Retention Policies",
+    "description": "This module deploys an Azure SQL Server Database Long-Term Backup Retention Policy.",
+    "owner": "Azure/module-maintainers"
+  },
+  "parameters": {
+    "serverName": {
+      "type": "string",
+      "metadata": {
+        "description": "Required. The name of the parent SQL Server."
+      }
+    },
+    "databaseName": {
+      "type": "string",
+      "metadata": {
+        "description": "Required. The name of the parent database."
+      }
+    },
+    "backupStorageAccessTier": {
+      "type": "string",
+      "allowedValues": [
+        "Archive",
+        "Hot"
+      ],
+      "nullable": true,
+      "metadata": {
+        "description": "Optional. The BackupStorageAccessTier for the LTR backups."
+      }
+    },
+    "makeBackupsImmutable": {
+      "type": "bool",
+      "nullable": true,
+      "metadata": {
+        "description": "Optional. The setting whether to make LTR backups immutable."
+      }
+    },
+    "monthlyRetention": {
+      "type": "string",
+      "nullable": true,
+      "metadata": {
+        "description": "Optional. Monthly retention in ISO 8601 duration format."
+      }
+    },
+    "weeklyRetention": {
+      "type": "string",
+      "nullable": true,
+      "metadata": {
+        "description": "Optional. Weekly retention in ISO 8601 duration format."
+      }
+    },
+    "weekOfYear": {
+      "type": "int",
+      "defaultValue": 1,
+      "metadata": {
+        "description": "Optional. Week of year backup to keep for yearly retention."
+      }
+    },
+    "yearlyRetention": {
+      "type": "string",
+      "nullable": true,
+      "metadata": {
+        "description": "Optional. Yearly retention in ISO 8601 duration format."
+      }
+    }
+  },
+  "resources": {
+    "server::database": {
+      "existing": true,
+      "type": "Microsoft.Sql/servers/databases",
+      "apiVersion": "2023-08-01-preview",
+      "name": "[format('{0}/{1}', parameters('serverName'), parameters('databaseName'))]"
+    },
+    "server": {
+      "existing": true,
+      "type": "Microsoft.Sql/servers",
+      "apiVersion": "2023-08-01-preview",
+      "name": "[parameters('serverName')]"
+    },
+    "backupLongTermRetentionPolicy": {
+      "type": "Microsoft.Sql/servers/databases/backupLongTermRetentionPolicies",
+      "apiVersion": "2023-05-01-preview",
+      "name": "[format('{0}/{1}/{2}', parameters('serverName'), parameters('databaseName'), 'default')]",
+      "properties": {
+        "backupStorageAccessTier": "[parameters('backupStorageAccessTier')]",
+        "makeBackupsImmutable": "[parameters('makeBackupsImmutable')]",
+        "monthlyRetention": "[parameters('monthlyRetention')]",
+        "weeklyRetention": "[parameters('weeklyRetention')]",
+        "weekOfYear": "[parameters('weekOfYear')]",
+        "yearlyRetention": "[parameters('yearlyRetention')]"
+      }
+    }
+  },
+  "outputs": {
+    "resourceGroupName": {
+      "type": "string",
+      "metadata": {
+        "description": "The resource group the long-term policy was deployed into."
+      },
+      "value": "[resourceGroup().name]"
+    },
+    "name": {
+      "type": "string",
+      "metadata": {
+        "description": "The name of the long-term policy."
+      },
+      "value": "default"
+    },
+    "resourceId": {
+      "type": "string",
+      "metadata": {
+        "description": "The resource ID of the long-term policy."
+      },
+      "value": "[resourceId('Microsoft.Sql/servers/databases/backupLongTermRetentionPolicies', parameters('serverName'), parameters('databaseName'), 'default')]"
+    }
+  }
+}
