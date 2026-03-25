@@ -95,6 +95,7 @@ class AssistantSettings(BaseSettings):
     api_base: str | None = Field(default=None, alias="OPENAI_API_BASE")
     api_version: str | None = Field(default=None, alias="OPENAI_API_VERSION")
     organization: str | None = Field(default=None, alias="OPENAI_ORG_ID")
+    use_managed_identity: bool = Field(default=False, alias="OPENAI_USE_MANAGED_IDENTITY")
     model_config_path: Path = Field(default=DEFAULT_MODEL_CONFIG_PATH, alias="ASSISTANT_MODEL_CONFIG_PATH")
     history_ttl_seconds: int = Field(default=900, alias="ASSISTANT_HISTORY_TTL_SECONDS")
     history_max_items: int = Field(default=128, alias="ASSISTANT_HISTORY_MAX_ITEMS")

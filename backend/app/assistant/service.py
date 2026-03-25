@@ -17,6 +17,12 @@ from openai import (
     AzureOpenAI,
 )
 
+try:
+    from azure.identity import DefaultAzureCredential, get_bearer_token_provider
+except ImportError:
+    DefaultAzureCredential = None  # type: ignore[assignment,misc]
+    get_bearer_token_provider = None  # type: ignore[assignment]
+
 from ..core.cache import SimpleTTLCache, create_cache
 from ..core.config import get_settings
 from ..services.catalog import ArtifactCatalogService, create_catalog
@@ -102,18 +108,35 @@ class AssistantService:
                 raise ValueError("OPENAI_API_BASE must be set for Azure OpenAI.")
             if not self._settings.api_version:
                 raise ValueError("OPENAI_API_VERSION must be set for Azure OpenAI.")
-        if not self._settings.api_key:
-            raise ValueError("Assistant is not configured. Set OPENAI_API_KEY in the backend environment.")
-        if provider == "azure":
-            if not self._settings.api_base:
-                raise ValueError("OPENAI_API_BASE must be set for Azure OpenAI.")
-            if not self._settings.api_version:
-                raise ValueError("OPENAI_API_VERSION must be set for Azure OpenAI.")
+
+            # Prefer managed identity (no secrets); fall back to API key.
+            if self._settings.use_managed_identity:
+                if DefaultAzureCredential is None or get_bearer_token_provider is None:
+                    raise ValueError(
+                        "azure-identity package is required for managed identity auth. "
+                        "Install it with: pip install azure-identity"
+                    )
+                credential = DefaultAzureCredential()
+                token_provider = get_bearer_token_provider(
+                    credential, "https://cognitiveservices.azure.com/.default"
+                )
+                return AzureOpenAI(
+                    azure_ad_token_provider=token_provider,
+                    azure_endpoint=self._settings.api_base,
+                    api_version=self._settings.api_version,
+                )
+
+            if not self._settings.api_key:
+                raise ValueError("Assistant is not configured. Set OPENAI_API_KEY or enable OPENAI_USE_MANAGED_IDENTITY.")
             return AzureOpenAI(
                 api_key=self._settings.api_key,
                 azure_endpoint=self._settings.api_base,
                 api_version=self._settings.api_version,
             )
+
+        # Non-Azure OpenAI provider
+        if not self._settings.api_key:
+            raise ValueError("Assistant is not configured. Set OPENAI_API_KEY in the backend environment.")
         return OpenAI(
             api_key=self._settings.api_key,
             base_url=self._settings.api_base,
