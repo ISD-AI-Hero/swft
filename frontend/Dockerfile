@@ -42,8 +42,22 @@ RUN apt-get update \
         libssl3 \
         perl-base \
     && rm -rf /var/lib/apt/lists/*
+# Create the templates directory for envsubst processing at startup.
+RUN mkdir -p /etc/nginx/templates
+
+# Copy entrypoint script and make it executable while still root.
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
 USER 101
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# nginx.conf.template contains ${API_BACKEND_URL} which is resolved at
+# container startup by the entrypoint script — NOT at build time.
+COPY nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /app/dist /usr/share/nginx/html
+
+# Default backend URL for local / docker-compose usage.
+ENV API_BACKEND_URL=http://localhost:8000
+
 EXPOSE 8080
-ENTRYPOINT ["nginx", "-g", "daemon off;"]
+ENTRYPOINT ["/docker-entrypoint.sh"]

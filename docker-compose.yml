@@ -1,0 +1,74 @@
+##
+# Docker Compose for local SCAI development.
+#
+# Runs the full stack: React frontend (nginx + API proxy) and
+# FastAPI backend (uvicorn with hot-reload).
+#
+# Usage:
+#   docker compose up --build          # build and start both services
+#   docker compose up --build backend  # rebuild backend only
+#   docker compose down                # stop and remove containers
+#
+# The frontend serves on http://localhost:8080 and proxies /api/*
+# to the backend container on port 8000 via Docker Compose networking.
+##
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      # ── Azure Storage ──────────────────────────────────────────────
+      - AZURE_STORAGE_ACCOUNT=${AZURE_STORAGE_ACCOUNT:-}                                    # Storage account name
+      - AZURE_STORAGE_CONNECTION_STRING=${AZURE_STORAGE_CONNECTION_STRING:-}                 # Connection string (key-based auth)
+      - AZURE_STORAGE_ENDPOINT_SUFFIX=${AZURE_STORAGE_ENDPOINT_SUFFIX:-core.usgovcloudapi.net}
+      - AZURE_STORAGE_CONTAINER_SBOMS=${AZURE_STORAGE_CONTAINER_SBOMS:-sboms}
+      - AZURE_STORAGE_CONTAINER_SCANS=${AZURE_STORAGE_CONTAINER_SCANS:-scans}
+      - AZURE_STORAGE_CONTAINER_RUNS=${AZURE_STORAGE_CONTAINER_RUNS:-runs}
+      - AZURE_TENANT_ID=${AZURE_TENANT_ID:-}                                                # AAD tenant
+
+      # ── Azure OpenAI ───────────────────────────────────────────────
+      - OPENAI_PROVIDER=${OPENAI_PROVIDER:-azure}                                           # "azure" or "openai"
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}                                                  # API key (key-based auth)
+      - OPENAI_API_BASE=${OPENAI_API_BASE:-}                                                # Endpoint URL (trailing /)
+      - OPENAI_API_VERSION=${OPENAI_API_VERSION:-2024-10-21}                                # API version
+      - OPENAI_MODEL_NAME=${OPENAI_MODEL_NAME:-gpt-4o}                                     # Chat deployment name
+
+      # ── Managed Identity (uncomment when using UMI / DefaultAzureCredential) ──
+      # - AZURE_CLIENT_ID=${AZURE_CLIENT_ID:-}                                              # UMI client ID
+      # - OPENAI_USE_MANAGED_IDENTITY=true                                                  # Skip API key, use MI
+      # When MI is enabled you can remove OPENAI_API_KEY and
+      # AZURE_STORAGE_CONNECTION_STRING — DefaultAzureCredential handles auth.
+
+      # ── Assistant config ────────────────────────────────────────────
+      - ASSISTANT_MODEL_CONFIG_PATH=app/app/assistant/model_config.json                     # Relative to repo root inside container (/srv/)
+      - ASSISTANT_HISTORY_TTL_SECONDS=${ASSISTANT_HISTORY_TTL_SECONDS:-900}
+      - ASSISTANT_HISTORY_MAX_ITEMS=${ASSISTANT_HISTORY_MAX_ITEMS:-256}
+
+      # ── CORS ────────────────────────────────────────────────────────
+      - ALLOWED_ORIGINS=http://localhost:8080,http://localhost:5173
+    volumes:
+      - ./backend/app:/srv/app/app
+      - ./lookup:/srv/app/lookup
+    # Override CMD for hot-reload during development.
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  frontend:
+    build:
+      context: frontend
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - API_BACKEND_URL=http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
