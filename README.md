@@ -39,22 +39,35 @@ The workflow still produces hardened artifacts named `<project>-<run>-{sbom|triv
 - Node.js 20+ and npm
 - Azure Storage account (or local artifacts extracted into a directory)
 
-# Run these commands to get the back end up and running
-- cd backend
-##Create virtual environment if not already
-- python -m venv .venv
-- Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass #allows you to run scripts in terminal if not already set
-- .\.venv\Scripts\Activate.ps1 - activate the virtual environment
-# Requirements 
+### Backend
+
+```bash
+cd backend
+```
+
+Only run this line once, to create the virtual environment.
+```bash
+python -m venv .venv
+```
+
+Do this all from within the backend folder. There are different dependencies for the frontend.
+```bash
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass # allows you to run scripts in terminal if not already set
+.venv\Scripts\Activate.ps1 # activate the virtual environment
+
 python -m pip install --upgrade pip setuptools wheel
-pip install -e . -> this is crucial as we are not using prequirements.txt but a wheel with all the dependencies in it
 
-Do this all from within the backend folder, there are differnet dependencies for the front end 
+pip install -e . # this is crucial as we are not using prequirements.txt but a wheel with all the dependencies in it 
+```
 
-# (Optional) set env var if not using .env
+(Optional) set env var if not using .env
+```bash
 $env:AZURE_STORAGE_CONNECTION_STRING="...EndpointSuffix=core.usgovcloudapi.net"
+```
 
-uvicorn app.main:app --host 127.0.0.1 --port 8000 --log-level debug
+```bash
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --log-level debug # backend swagger API: http://127.0.0.1:8000/docs
+```
 
 Copy `backend/.env.example` to `backend/.env` and fill in the values, or export them in your shell:
 
@@ -73,6 +86,11 @@ API surface:
 - `GET /projects/{project}/runs` – enumerate runs with cosign/trivy summaries
 - `GET /projects/{project}/runs/{run}` – detailed run metadata + artifact descriptors
 - `GET /projects/{project}/runs/{run}/artifacts/{sbom|trivy|run}` – raw artifact payload (JSON)
+
+Use the following when you want to stop running .venv:
+```bash
+deactivate
+```
 
 ### Frontend Portal (React + Tailwind)
 
@@ -204,6 +222,8 @@ A Docker image for the demo can still be built with `docker build -t swft-demo s
 ## CI/CD Workflow Highlights
 
 Workflow file: `.github/workflows/deploy.yml`
+
+The workflow builds, scans, and deploys the **demo** container (`samples/fastapi-demo`) to Azure Container Instances. To deploy the **portal** (backend + frontend) to **Azure App Service** instead—including US Government regions—see **[Deploying to Azure App Service](backend/README.md#deploying-to-azure-app-service)** in `backend/README.md`. That doc covers the backend-only `[tool.poetry]` fix, Docker vs code deploy, and **full-app** options (two App Services vs single App Service).
 
 ## Compliance Authoring Engine CLI (preview)
 

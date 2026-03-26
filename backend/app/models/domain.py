@@ -26,6 +26,9 @@ class RunSummary:
     cosign_status: str | None = None
     trivy_findings_total: int | None = None
     trivy_findings_failset: int | None = None
+    final_assessment_findings_total: int | None = None
+    final_assessment_findings_failset: int | None = None
+    final_assessment_overall_risk_level: str | None = None
     deployment_url: str | None = None
 
 
@@ -34,6 +37,7 @@ class ProjectSummary:
     project_id: str
     run_count: int
     latest_run_at: datetime | None
+    latest_overall_risk_level: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

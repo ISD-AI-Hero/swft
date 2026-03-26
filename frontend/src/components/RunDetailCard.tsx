@@ -5,6 +5,28 @@ import { InfoPopover } from "@components/InfoPopover";
 const formatDate = (value: string | null) => (value ? new Date(value).toLocaleString() : "—");
 const truncateCommit = (commit: string | undefined): string => (commit && commit.length > 7 ? commit.slice(0, 7) : commit ?? "—");
 
+const severityColors: Record<string, string> = {
+  CRITICAL:
+    "border border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/20 dark:text-rose-200",
+  HIGH:
+    "border border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-500/40 dark:bg-orange-500/20 dark:text-orange-200",
+  MEDIUM:
+    "border border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/20 dark:text-amber-200",
+  LOW:
+    "border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/20 dark:text-emerald-200",
+  UNKNOWN:
+    "border border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-600/40 dark:bg-slate-600/30 dark:text-slate-200",
+};
+
+const SeverityBadge = ({ severity }: { severity: string }) => {
+  const style = severityColors[severity] ?? severityColors.UNKNOWN;
+  return (
+    <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold ${style}`}>
+      <span>{severity}</span>
+    </span>
+  );
+};
+
 // Core layout for the run overview section. Accepts optional SBOM/Trivy highlights so the caller
 // can decide how much context to render without duplicating formatting logic.
 type SbomHighlights = {
@@ -30,7 +52,8 @@ const overviewHelp = {
     items: [
       { label: "Created", content: "UTC timestamp recorded in run.json for this workflow run." },
       { label: "Cosign verification", content: "Result of the signing verification step against the pushed image digest." },
-      { label: "Trivy findings", content: "Total findings and those that triggered the fail-set in policy summarised from run.json." },
+      { label: "Overall Risk", content: "Overall risk level from the final assessment artifact." },
+      { label: "Assessment findings", content: "Total findings and those that are above threshold policy set in run.json." },
       { label: "Deployment URL", content: "Endpoint emitted by deployment steps so the accrediting official can inspect the live instance." }
     ]
   },
@@ -109,8 +132,22 @@ export const RunDetailCard = ({
             <dd className={detail.summary.cosign_status === "passed" ? "text-emerald-400" : "text-rose-400"}>{detail.summary.cosign_status ?? "unknown"}</dd>
           </div>
           <div className="flex items-center justify-between">
-            <dt>Trivy findings</dt>
-            <dd>{detail.summary.trivy_findings_total ?? 0} total / {detail.summary.trivy_findings_failset ?? 0} fail-set</dd>
+            <dt>Overall Risk</dt>
+            <dd>
+              {detail.summary.final_assessment_overall_risk_level ? (
+                <SeverityBadge severity={detail.summary.final_assessment_overall_risk_level} />
+              ) : (
+                <span className="text-slate-400 dark:text-slate-500">—</span>
+              )}
+            </dd>
+          </div>
+          <div className="flex items-center justify-between">
+            <dt>Assessment findings</dt>
+            <dd>
+              {detail.summary.final_assessment_findings_total !== null && detail.summary.final_assessment_findings_failset !== null
+                ? `${detail.summary.final_assessment_findings_total} total / ${detail.summary.final_assessment_findings_failset} above threshold`
+                : "—"}
+            </dd>
           </div>
           <div className="flex items-center justify-between">
             <dt>Deployment URL</dt>
@@ -215,12 +252,16 @@ export const RunDetailCard = ({
           Downloadable outputs linked to this run—use them for independent review or archival.
         </p>
         <ul className="mt-4 space-y-2 text-sm text-slate-600 dark:text-slate-300">
-          {detail.artifacts.map((artifact) => (
-            <li key={artifact.blob_name} className="flex items-center justify-between">
-              <span className="font-medium text-slate-900 uppercase dark:text-slate-100">{artifact.artifact_type}</span>
-              <span className="text-xs text-slate-500 dark:text-slate-400">{artifact.blob_name}</span>
-            </li>
-          ))}
+          {detail.artifacts.map((artifact) => {
+            const isSignature = artifact.blob_name.endsWith(".sig");
+            const displayType = isSignature ? `${artifact.artifact_type} - SIG` : artifact.artifact_type;
+            return (
+              <li key={artifact.blob_name} className="flex items-center justify-between">
+                <span className="font-medium text-slate-900 uppercase dark:text-slate-100">{displayType}</span>
+                <span className="text-xs text-slate-500 dark:text-slate-400">{artifact.blob_name}</span>
+              </li>
+            );
+          })}
         </ul>
       </div>
     </div>

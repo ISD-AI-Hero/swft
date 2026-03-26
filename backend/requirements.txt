@@ -1,0 +1,16 @@
+# SWFT backend runtime dependencies (for Azure App Service Oryx/pip deploy).
+# Keep in sync with backend/pyproject.toml [project.dependencies].
+# Oryx uses this when pyproject.toml is excluded via .deploymentignore to avoid
+# "[tool.poetry] section not found" (project uses setuptools/PEP 621, not Poetry).
+fastapi>=0.120.3
+uvicorn[standard]>=0.38.0
+pydantic>=2.12.3
+pydantic-settings>=2.0.0
+azure-identity>=1.25.1
+azure-storage-blob>=12.27.1
+python-multipart>=0.0.20
+orjson>=3.11.4
+python-dotenv>=1.2.1
+psycopg[binary]>=3.2.4
+httpx>=0.27.0
+openai>=1.0.0

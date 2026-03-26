@@ -58,10 +58,19 @@ const COSIGN_SCALE = {
   failed: 0
 } as const;
 
-const ARTIFACT_KEYS: Array<{ field: keyof RunSummary["artifact_counts"]; label: string; color: string }> = [
+const ARTIFACT_KEYS: Array<{ 
+  field: string; 
+  label: string; 
+  color: string;
+  requiredCount?: number; // Required count for completeness (default: 1)
+}> = [
   { field: "run", label: "Run metadata", color: "#2563eb" },
   { field: "sbom", label: "SBOM", color: "#38bdf8" },
-  { field: "trivy", label: "Trivy report", color: "#14b8a6" }
+  { field: "finalassessment", label: "Final Assessment", color: "#8b5cf6" },
+  { field: "codeql", label: "CodeQL", color: "#ec4899", requiredCount: 2 },
+  { field: "trivy", label: "Trivy report", color: "#14b8a6", requiredCount: 2 },
+  { field: "dockerinspect", label: "Docker Inspect", color: "#f59e0b" },
+  { field: "sonarqube", label: "SonarQube", color: "#10b981" }
 ];
 
 const CustomPoint = ({ size, color, borderWidth, borderColor }: PointSymbolProps) => (
@@ -128,19 +137,21 @@ export const RunHistoryCard = ({ projectId, runs }: { projectId: string; runs: R
         color: "#fb923c",
         data: chronological.map((run) => ({
           x: run.run_id,
-          y: run.trivy_findings_total ?? 0,
+          y: run.final_assessment_findings_total ?? null,
           runId: run.run_id,
-          createdAtLabel: run.label
+          createdAtLabel: run.label,
+          hasData: run.final_assessment_findings_total !== null
         }))
       },
       {
-        id: "Fail-set findings",
+        id: "Sec+",
         color: "#ef4444",
         data: chronological.map((run) => ({
           x: run.run_id,
-          y: run.trivy_findings_failset ?? 0,
+          y: run.final_assessment_findings_failset ?? null,
           runId: run.run_id,
-          createdAtLabel: run.label
+          createdAtLabel: run.label,
+          hasData: run.final_assessment_findings_failset !== null
         }))
       }
     ],
@@ -188,12 +199,20 @@ export const RunHistoryCard = ({ projectId, runs }: { projectId: string; runs: R
       ARTIFACT_KEYS.map((key) => ({
         id: key.label,
         color: key.color,
-        data: chronological.map((run) => ({
-          x: run.run_id,
-          y: ((run.artifact_counts?.[key.field] as number | undefined) ?? 0) > 0 ? 1 : 0,
-          runId: run.run_id,
-          createdAtLabel: run.label
-        }))
+        data: chronological.map((run) => {
+          const count = (run.artifact_counts?.[key.field] as number | undefined) ?? 0;
+          // Check if required count is met (2 for codeql/trivy, 1+ for others)
+          const required = key.requiredCount ?? 1;
+          const isComplete = count >= required;
+          return {
+            x: run.run_id,
+            y: isComplete ? 1 : 0,
+            runId: run.run_id,
+            createdAtLabel: run.label,
+            count: count, // Store count for tooltip
+            required: required
+          };
+        })
       })),
     [chronological]
   );
@@ -227,7 +246,7 @@ export const RunHistoryCard = ({ projectId, runs }: { projectId: string; runs: R
   }, [chronological]);
 
   const handlePointClick = (point: Point) => {
-    const runId = point.data.runId as string | undefined;
+    const runId = (point.data as { runId?: string }).runId;
     if (runId) navigate(`/projects/${projectId}/runs/${runId}`);
   };
 
@@ -247,7 +266,7 @@ const renderLineChart = (
     return (
     <ResponsiveLine
       data={series}
-      margin={{ top: 20, right: 32, bottom: 48, left: 56 }}
+      margin={{ top: 20, right: 32, bottom: 80, left: 56 }}
       xScale={{ type: "point" }}
       yScale={{ type: "linear", min: options?.yMin ?? 0, max: options?.yMax ?? "auto", stacked: false }}
       theme={nivoTheme}
@@ -265,8 +284,8 @@ const renderLineChart = (
           options.tooltipFormatter(slice)
         ) : (
           <div className="rounded-xl bg-white p-3 text-sm text-slate-700 shadow-lg ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Run {slice.points[0]?.data.runId as string}</div>
-            <div className="text-xs text-slate-500 dark:text-slate-400">{slice.points[0]?.data.createdAtLabel as string}</div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Run {(slice.points[0]?.data as { runId?: string }).runId ?? ""}</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">{(slice.points[0]?.data as { createdAtLabel?: string }).createdAtLabel ?? ""}</div>
             <div className="mt-2 space-y-1">
               {slice.points.map((point) => (
                 <div key={point.id} className="flex items-center gap-2">
@@ -279,7 +298,7 @@ const renderLineChart = (
           </div>
         )
       }
-      axisBottom={{ tickRotation: -35, legend: "Run ID", legendOffset: 42, legendPosition: "middle" }}
+      axisBottom={{ tickRotation: -35, legend: "Run ID", legendOffset: 60, legendPosition: "middle" }}
       axisLeft={{
         legend: options?.axisLeftLabel ?? "Count",
         legendOffset: -45,
@@ -332,10 +351,50 @@ const renderLineChart = (
           <header className="flex flex-col gap-1">
             <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Vulnerability posture</h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Track Trivy findings and the subset that break policy thresholds.
+              Track assessment findings and the subset that breaks policy thresholds.
+            </p>
+            <p className="text-xs text-slate-400 dark:text-slate-500 italic mt-1">
+              Note: Gaps indicate runs without the final assessment artifact.
             </p>
           </header>
-          <div className="mt-4 h-64">{renderLineChart(vulnerabilitySeries)}</div>
+          <div className="mt-4 h-64">
+            {renderLineChart(vulnerabilitySeries, {
+              tooltipFormatter: (slice) => {
+                const hasAnyData = slice.points.some((point) => {
+                  const pointData = point.data as { hasData?: boolean; y?: number | null };
+                  return pointData.hasData === true && pointData.y !== null;
+                });
+                
+                return (
+                  <div className="rounded-xl bg-white p-3 text-sm text-slate-700 shadow-lg ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Run {(slice.points[0]?.data as { runId?: string }).runId ?? ""}</div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400">{(slice.points[0]?.data as { createdAtLabel?: string }).createdAtLabel ?? ""}</div>
+                    {!hasAnyData ? (
+                      <div className="mt-2 text-xs text-amber-600 dark:text-amber-400 italic">
+                        Final assessment not available for this run
+                      </div>
+                    ) : (
+                      <div className="mt-2 space-y-1">
+                        {slice.points.map((point) => {
+                          const pointData = point.data as { hasData?: boolean; y?: number | null };
+                          const hasData = pointData.hasData === true && pointData.y !== null;
+                          return (
+                            <div key={point.id} className="flex items-center gap-2">
+                              <span className="inline-flex h-2.5 w-2.5 flex-none rounded-full" style={{ background: point.serieColor }} />
+                              <span className="flex-1 text-xs">{point.serieId}</span>
+                              <span className="text-xs font-semibold text-slate-900 dark:text-slate-100">
+                                {hasData ? point.data.yFormatted : "—"}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+            })}
+          </div>
         </div>
 
         <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-800 dark:bg-slate-950/40">
@@ -359,8 +418,8 @@ const renderLineChart = (
               axisLeftFormat: (value) => (value === 1 ? "Passed" : value === 0 ? "Failed" : ""),
               tooltipFormatter: (slice) => (
                 <div className="rounded-xl bg-white p-3 text-sm text-slate-700 shadow-lg ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Run {slice.points[0]?.data.runId as string}</div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400">{slice.points[0]?.data.createdAtLabel as string}</div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Run {(slice.points[0]?.data as { runId?: string }).runId ?? ""}</div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400">{(slice.points[0]?.data as { createdAtLabel?: string }).createdAtLabel ?? ""}</div>
                   {slice.points.map((point) => (
                     <div key={point.id} className="mt-2 text-xs font-semibold text-slate-900 dark:text-slate-100">
                       {((point.data as unknown as { status?: string }).status ?? "unknown").toUpperCase()}
@@ -375,7 +434,7 @@ const renderLineChart = (
         <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-800 dark:bg-slate-950/40">
           <header className="flex flex-col gap-1">
             <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Evidence completeness</h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400">Verify that SBOM, Trivy, and run manifests land together every time.</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Verify that run, SBOM, Final Assessment, CodeQL, Trivy, Docker Inspect, and SonarQube artifacts land together every time.</p>
           </header>
           <div className="mt-4 h-64">
             {renderLineChart(evidenceSeries, {
@@ -383,20 +442,34 @@ const renderLineChart = (
               yMax: 1,
               axisLeftLabel: "Artifact present",
               axisLeftFormat: (value) => (value === 1 ? "Yes" : value === 0 ? "No" : ""),
-              tooltipFormatter: (slice) => (
-                <div className="rounded-xl bg-white p-3 text-sm text-slate-700 shadow-lg ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Run {slice.points[0]?.data.runId as string}</div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400">{slice.points[0]?.data.createdAtLabel as string}</div>
-                  <div className="mt-2 space-y-1">
-                    {slice.points.map((point) => (
-                      <div key={point.id} className="flex items-center justify-between text-xs">
-                        <span>{point.serieId}</span>
-                        <span className="font-semibold text-slate-900 dark:text-slate-100">{(point.data.y as number) === 1 ? "Present" : "Missing"}</span>
-                      </div>
-                    ))}
+              tooltipFormatter: (slice) => {
+                // Create a map of points by serieId for quick lookup
+                const pointsBySerieId = new Map(slice.points.map((point) => [point.serieId, point]));
+                return (
+                  <div className="min-w-[220px] rounded-xl bg-white p-3 text-sm text-slate-700 shadow-lg ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Run {(slice.points[0]?.data as { runId?: string }).runId ?? ""}</div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400">{(slice.points[0]?.data as { createdAtLabel?: string }).createdAtLabel ?? ""}</div>
+                    <div className="mt-2 space-y-1">
+                      {ARTIFACT_KEYS.map((key) => {
+                        const point = pointsBySerieId.get(key.label);
+                        if (!point) return null;
+                        const pointData = point.data as { count?: number; required?: number; y?: number };
+                        const count = pointData.count ?? 0;
+                        const required = pointData.required ?? 1;
+                        const isComplete = (pointData.y as number) === 1;
+                        return (
+                          <div key={point.id} className="flex items-center justify-between gap-3 text-xs">
+                            <span>{point.serieId}</span>
+                            <span className="font-semibold text-slate-900 dark:text-slate-100">
+                              {isComplete ? `Present (${count}/${required})` : `Missing (${count}/${required})`}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              )
+                );
+              }
             })}
           </div>
         </div>
