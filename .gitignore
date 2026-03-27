@@ -11,6 +11,7 @@ azure-credentials.json
 .DS_Store
 .env
 Dev_Backlog/
+reference_infra/
 
 # Python-generated files
 __pycache__/
