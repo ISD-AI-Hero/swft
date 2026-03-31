@@ -17,7 +17,7 @@ param locationAbbreviation = 'va'
 
 // Virtual Network Configuration
 param virtualNetworkNameFinal = toLower('vnet-${customer}-${product}-${env}-${locationAbbreviation}')
-param vNetAddressPrefix = '10.1.0.0/16'
+param vNetAddressPrefix = '10.0.0.0/16'
 param subnetNamePrefixFinal = toLower('snet-${customer}-${product}-${env}gov-${env}')
 // NOTE: Address space starts at x.x.2.0/26 because Azure Firewall is reserving x.x.0.0/26 and x.x.1.0/26
 
@@ -25,18 +25,18 @@ param subnets = [
   {
     function: 'gateway'
     name: take('${subnetNamePrefixFinal}-gateway', 80)
-    addressPrefix: '10.X.X.X/27'
+    addressPrefix: '10.0.1.0/27'
   }
   {
     function: 'web'
     name: take('${subnetNamePrefixFinal}-web', 80)
-    addressPrefix: '10.X.X.X/27'
+    addressPrefix: '10.0.1.32/27'
     delegation: 'Microsoft.Web/serverFarms'
   }
   {
     function: 'services'
     name: take('${subnetNamePrefixFinal}-services', 80)
-    addressPrefix: '10.X.X.X/28'
+    addressPrefix: '10.0.1.64/28'
   }
 ]
 
