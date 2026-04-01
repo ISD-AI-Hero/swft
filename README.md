@@ -39,18 +39,50 @@ The workflow still produces hardened artifacts named `<project>-<run>-{sbom|triv
 - Node.js 20+ and npm
 - Azure Storage account (or local artifacts extracted into a directory)
 
+### Preferred: Local Containers with Docker Compose
+
+This is the preferred way to run the portal locally because it matches the deployed containerized shape more closely and starts the full stack for you.
+
+From the repository root:
+
+1. Create a copy of your .env file in the backend/ folder into the root project directory
+
+2. Then run the docker compose command:
+```bash
+docker compose up --build
+```
+
+After the containers start, open `http://localhost:8080` in your browser to use the app.
+
+Other local endpoints:
+
+- App: `http://localhost:8080`
+- Backend API directly: `http://localhost:8000`
+
+The compose stack uses `docker-compose.yml`. 
+
+To stop it:
+
+```bash
+docker compose down
+```
+
 ### Backend
+
+Use this native path when you specifically want the fastest edit/run loop outside containers.
 
 ```bash
 cd backend
 ```
 
 Only run this line once, to create the virtual environment.
+
 ```bash
 python -m venv .venv
 ```
 
 Do this all from within the backend folder. There are different dependencies for the frontend.
+
 ```bash
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass # allows you to run scripts in terminal if not already set
 .venv\Scripts\Activate.ps1 # activate the virtual environment
@@ -61,6 +93,7 @@ pip install -e . # this is crucial as we are not using prequirements.txt but a w
 ```
 
 (Optional) set env var if not using .env
+
 ```bash
 $env:AZURE_STORAGE_CONNECTION_STRING="...EndpointSuffix=core.usgovcloudapi.net"
 ```
@@ -88,11 +121,14 @@ API surface:
 - `GET /projects/{project}/runs/{run}/artifacts/{sbom|trivy|run}` – raw artifact payload (JSON)
 
 Use the following when you want to stop running .venv:
+
 ```bash
 deactivate
 ```
 
 ### Frontend Portal (React + Tailwind)
+
+If you are running the full stack with Docker Compose, you do not need this section.
 
 ```bash
 cd frontend
