@@ -45,7 +45,11 @@ def _build_credential(settings: AzureAuthSettings):
     if AzureIdentityModule is None:
         raise RepositoryError("azure-identity package is required for default credentials.")
     DefaultAzureCredential = getattr(AzureIdentityModule, "DefaultAzureCredential")
-    return DefaultAzureCredential(exclude_interactive_browser_credential=True, exclude_powershell_credential=True)
+    return DefaultAzureCredential(
+        authority="https://login.microsoftonline.us",
+        exclude_interactive_browser_credential=True,
+        exclude_powershell_credential=True,
+    )
 
 
 class AzureBlobRepository:

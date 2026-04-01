@@ -125,8 +125,8 @@ class AssistantService:
         self._catalog: ArtifactCatalogService | None = catalog
 
     def _build_client(self, provider: Provider) -> OpenAI | AzureOpenAI:
-        if not self._settings.api_key:
-            raise ValueError("Assistant is not configured. Set OPENAI_API_KEY in the backend environment.")
+        if not self._settings.api_key and not self._settings.use_managed_identity:
+            raise ValueError("Assistant is not configured. Set OPENAI_API_KEY or enable OPENAI_USE_MANAGED_IDENTITY.")
         if provider == "azure":
             if not self._settings.api_base:
                 raise ValueError("OPENAI_API_BASE must be set for Azure OpenAI.")
@@ -140,7 +140,9 @@ class AssistantService:
                         "azure-identity package is required for managed identity auth. "
                         "Install it with: pip install azure-identity"
                     )
-                credential = DefaultAzureCredential()
+                credential = DefaultAzureCredential(
+                    authority="https://login.microsoftonline.us",
+                )
                 token_provider = get_bearer_token_provider(
                     credential, "https://cognitiveservices.azure.com/.default"
                 )
@@ -150,8 +152,6 @@ class AssistantService:
                     api_version=self._settings.api_version,
                 )
 
-            if not self._settings.api_key:
-                raise ValueError("Assistant is not configured. Set OPENAI_API_KEY or enable OPENAI_USE_MANAGED_IDENTITY.")
             return AzureOpenAI(
                 api_key=self._settings.api_key,
                 azure_endpoint=self._settings.api_base,
