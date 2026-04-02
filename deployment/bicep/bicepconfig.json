@@ -12,9 +12,7 @@
       }
     }
   },
-  "experimentalFeaturesEnabled": {
-    "extensibility": true
-  },
+  "experimentalFeaturesEnabled": {},
   "extensions": {
     "az": "builtin:",
     "kubernetes": "builtin:",

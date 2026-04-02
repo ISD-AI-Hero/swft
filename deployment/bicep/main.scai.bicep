@@ -77,10 +77,10 @@ param existingAcrName string
 param existingAcrResourceGroup string = resourceGroup().name
 
 @description('Image tag for the frontend container')
-param uiImageTag string = 'latest'
+param uiImageTag string = 'v1.0.0'
 
 @description('Image tag for the backend container')
-param apiImageTag string = 'latest'
+param apiImageTag string = 'v1.0.0'
 
 // ============================================================================
 // COMPUTED VARIABLES

@@ -2,9 +2,20 @@ using '../../main.scai.bicep'
 
 param isGovDeployment = true
 param env = 'DEV'
-param customer = 'fedairs'
+param customer = 'gfim'
 param product = 'scai'
 param locationAbbreviation = 'va'
+
+
+
+// Container image for frontend and backend
+// @description('Image tag for the frontend container')
+// param uiImageTag string = 'v1.0.0'
+
+// @description('Image tag for the backend container')
+// param apiImageTag string = 'v1.0.0'
+
+
 
 // ============================================================================
 // NETWORKING CONFIGURATION
@@ -17,26 +28,26 @@ param locationAbbreviation = 'va'
 
 // Virtual Network Configuration
 param virtualNetworkNameFinal = toLower('vnet-${customer}-${product}-${env}-${locationAbbreviation}')
-param vNetAddressPrefix = '10.0.0.0/16'
+param vNetAddressPrefix = '10.1.0.0/16'
 param subnetNamePrefixFinal = toLower('snet-${customer}-${product}-${env}gov-${env}')
-// NOTE: Address space starts at x.x.2.0/26 because Azure Firewall is reserving x.x.0.0/26 and x.x.1.0/26
+// NOTE: Using 10.1.0.0/16 to avoid conflict with existing VM VNet at 10.0.0.0/16
 
 param subnets = [
   {
     function: 'gateway'
     name: take('${subnetNamePrefixFinal}-gateway', 80)
-    addressPrefix: '10.0.1.0/27'
+    addressPrefix: '10.1.1.0/27'
   }
   {
     function: 'web'
     name: take('${subnetNamePrefixFinal}-web', 80)
-    addressPrefix: '10.0.1.32/27'
+    addressPrefix: '10.1.1.32/27'
     delegation: 'Microsoft.Web/serverFarms'
   }
   {
     function: 'services'
     name: take('${subnetNamePrefixFinal}-services', 80)
-    addressPrefix: '10.0.1.64/28'
+    addressPrefix: '10.1.1.64/28'
   }
 ]
 
@@ -46,7 +57,7 @@ param subnets = [
 
 // Network Security — All resources private by default
 param publicNetworkAccess = 'Disabled'
-param publicNetworkAccessUIAppService = 'Enabled' // UI can be publicly accessible
+param publicNetworkAccessUIAppService = 'Disabled' // TODO: Set to 'Enabled' and configure ipSecurityRestrictions with allowed user IPs
 param httpsOnly = true
 param vnetRouteAllEnabled = true
 param vnetContentShareEnabled = true
