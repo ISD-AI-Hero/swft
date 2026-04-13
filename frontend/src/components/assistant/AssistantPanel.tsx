@@ -166,15 +166,16 @@ const MarkdownContent = ({ content }: { content: string }) => (
       h2: ({ node, ...props }) => <h2 className="mt-4 text-base font-semibold text-slate-900 dark:text-slate-100" {...props} />,
       h3: ({ node, ...props }) => <h3 className="mt-4 text-sm font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-400" {...props} />,
       p: ({ node, ...props }) => <p className="mb-3 leading-6 text-slate-700 dark:text-slate-300" {...props} />,
-      ul: ({ node, ordered, ...props }) => <ul className="mb-3 list-disc space-y-2 pl-5 text-slate-700 dark:text-slate-300" {...props} />,
-      ol: ({ node, ordered, ...props }) => <ol className="mb-3 list-decimal space-y-2 pl-5 text-slate-700 dark:text-slate-300" {...props} />,
+      ul: ({ node, ...props }) => <ul className="mb-3 list-disc space-y-2 pl-5 text-slate-700 dark:text-slate-300" {...props} />,
+      ol: ({ node, ...props }) => <ol className="mb-3 list-decimal space-y-2 pl-5 text-slate-700 dark:text-slate-300" {...props} />,
       li: ({ node, ...props }) => <li className="pl-1" {...props} />,
-      code: ({ inline, className, children, ...props }) => {
-        if (inline) {
+      code: ({ className, children, ...props }) => {
+        const isBlock = /language-/.test(className ?? "");
+        if (!isBlock) {
           return <code className="rounded bg-slate-200 px-1.5 py-0.5 text-sm text-slate-900 dark:bg-slate-700 dark:text-slate-100" {...props}>{children}</code>;
         }
         return (
-          <pre className="mb-4 overflow-x-auto rounded-lg bg-slate-900/80 p-4 text-sm text-slate-100 shadow-inner dark:bg-slate-800" {...props}>
+          <pre className="mb-4 overflow-x-auto rounded-lg bg-slate-900/80 p-4 text-sm text-slate-100 shadow-inner dark:bg-slate-800">
             <code className={className}>{children}</code>
           </pre>
         );
@@ -193,6 +194,14 @@ const MarkdownContent = ({ content }: { content: string }) => (
   >
     {content}
   </ReactMarkdown>
+);
+
+const TypingIndicator = () => (
+  <div className="flex items-center gap-1 px-1 py-1" aria-label="Assistant is thinking">
+    <span className="h-2 w-2 rounded-full bg-slate-400 dark:bg-slate-500 animate-bounce [animation-delay:-0.3s]" />
+    <span className="h-2 w-2 rounded-full bg-slate-400 dark:bg-slate-500 animate-bounce [animation-delay:-0.15s]" />
+    <span className="h-2 w-2 rounded-full bg-slate-400 dark:bg-slate-500 animate-bounce" />
+  </div>
 );
 
 const emptyMessageState: ConversationEntry[] = [
@@ -216,6 +225,7 @@ export const AssistantPanel = ({
   const [config, setConfig] = useState<AssistantConfig | null>(null);
   const [configError, setConfigError] = useState<string | null>(null);
   const [loadingConfig, setLoadingConfig] = useState(false);
+  const canStream = config?.streaming_enabled === true;
 
   const [facet, setFacet] = useState<AssistantFacet>(initialFacet ?? "run_manifest");
   const [persona, setPersona] = useState<AssistantPersona>("security_assessor");
@@ -229,6 +239,7 @@ export const AssistantPanel = ({
   const [configExpanded, setConfigExpanded] = useState(true);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const models = useMemo(() => config?.models ?? [], [config]);
   const activeModel = useMemo(() => {
     if (models.length === 0) return null;
@@ -251,7 +262,7 @@ export const AssistantPanel = ({
     const runEntry = { key: "Run Manifest", label: "Run Manifest", value: compactJson(contextArtifacts.run), include: true };
     const sbomEntry = { key: "SBOM Artifact", label: "SBOM Artifact", value: compactJson(contextArtifacts.sbom), include: facet === "sbom" };
     const trivyEntry = { key: "Trivy Report", label: "Trivy Report", value: compactJson(contextArtifacts.trivy), include: facet === "trivy" || facet === "general" };
-    const appDesignEntry = { key: "Architecture Context", label: "Architecture Context", value: contextArtifacts.appDesign, include: facet === "architecture" || facet === "general" };
+    const appDesignEntry = { key: "Architecture Context", label: "Architecture Context", value: contextArtifacts.appDesign ?? null, include: facet === "architecture" || facet === "general" };
 
     const candidates = [runEntry, sbomEntry, trivyEntry, appDesignEntry].filter((entry) => entry.include && entry.value);
     const slotCount = Math.max(candidates.length, 1);
@@ -328,10 +339,17 @@ export const AssistantPanel = ({
     setInput(prompt);
   };
 
+  const stopGeneration = () => {
+    abortControllerRef.current?.abort();
+  };
+
   const sendMessage = async (question: string) => {
     if (!config || !question.trim()) return;
     setSendError(null);
     setSending(true);
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     const trimmedQuestion = question.trim();
     const userEntry: ConversationEntry = { id: `user-${Date.now()}`, role: "user", content: trimmedQuestion };
@@ -394,18 +412,29 @@ export const AssistantPanel = ({
               )
             );
           }
-        });
+        }, controller.signal);
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Assistant request failed.";
-        setSendError(message);
-        setMessages((prev) =>
-          prev.map((entry) =>
-            entry.id === placeholderId
-              ? { ...entry, content: `I couldn't complete that request: **${message}**` }
-              : entry
-          )
-        );
+        if (error instanceof DOMException && error.name === "AbortError") {
+          setMessages((prev) =>
+            prev.map((entry) =>
+              entry.id === placeholderId && entry.content === ""
+                ? { ...entry, content: "_Generation stopped._" }
+                : entry
+            )
+          );
+        } else {
+          const message = error instanceof Error ? error.message : "Assistant request failed.";
+          setSendError(message);
+          setMessages((prev) =>
+            prev.map((entry) =>
+              entry.id === placeholderId
+                ? { ...entry, content: `I couldn't complete that request: **${message}**` }
+                : entry
+            )
+          );
+        }
       } finally {
+        abortControllerRef.current = null;
         setSending(false);
       }
       return;
@@ -661,7 +690,11 @@ export const AssistantPanel = ({
                           }`}
                         >
                           {entry.role === "assistant" ? (
-                            <MarkdownContent content={entry.content} />
+                            entry.content === "" ? (
+                              <TypingIndicator />
+                            ) : (
+                              <MarkdownContent content={entry.content} />
+                            )
                           ) : (
                             <p className="text-sm leading-6">{entry.content}</p>
                           )}
@@ -674,6 +707,13 @@ export const AssistantPanel = ({
                         </div>
                       </div>
                     ))}
+                    {sending && !canStream && (
+                      <div className="flex justify-start">
+                        <div className="max-w-xl rounded-2xl bg-slate-100 px-4 py-3 shadow-sm dark:bg-slate-800/80">
+                          <TypingIndicator />
+                        </div>
+                      </div>
+                    )}
                     <div ref={bottomRef} />
                   </div>
                 </section>
@@ -718,13 +758,25 @@ export const AssistantPanel = ({
                       <p className="text-xs text-slate-500 dark:text-slate-400">
                         Responses always cite `app-design.md`, Run Manifest schema, and the selected facet schema.
                       </p>
-                      <button
-                        type="submit"
-                        disabled={sending || !input.trim() || loadingConfig}
-                        className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400"
-                      >
-                        {sending ? "Thinking…" : "Send"}
-                      </button>
+                      {sending ? (
+                        <button
+                          type="button"
+                          onClick={stopGeneration}
+                          className="inline-flex items-center gap-2 rounded-full bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-700"
+                          aria-label="Stop generation"
+                        >
+                          <span className="h-3 w-3 rounded-sm bg-white" aria-hidden="true" />
+                          Stop
+                        </button>
+                      ) : (
+                        <button
+                          type="submit"
+                          disabled={!input.trim() || loadingConfig}
+                          className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400"
+                        >
+                          Send
+                        </button>
+                      )}
                     </div>
                   </form>
                 </section>

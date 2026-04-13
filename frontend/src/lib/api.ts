@@ -55,13 +55,15 @@ export const postAssistantMessage = async (payload: AssistantRequest): Promise<A
 // Stream an assistant message and forward each NDJSON event to a callback.
 export const streamAssistantMessage = async (
   payload: AssistantRequest,
-  onEvent: (event: AssistantStreamEvent) => void
+  onEvent: (event: AssistantStreamEvent) => void,
+  signal?: AbortSignal
 ): Promise<void> => {
   // Stream NDJSON tokens from the backend so the UI can render incremental replies.
   const response = await fetch(apiUrl("/assistant/chat/stream"), {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/x-ndjson" },
     body: JSON.stringify(payload),
+    signal,
   });
   if (!response.ok) {
     const message = await response.text();
@@ -71,20 +73,26 @@ export const streamAssistantMessage = async (
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    let newlineIndex = buffer.indexOf("\n");
-    while (newlineIndex !== -1) {
-      const line = buffer.slice(0, newlineIndex).trim();
-      buffer = buffer.slice(newlineIndex + 1);
-      if (line.length > 0) {
-        const parsed = JSON.parse(line) as AssistantStreamEvent;
-        onEvent(parsed);
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let newlineIndex = buffer.indexOf("\n");
+      while (newlineIndex !== -1) {
+        const line = buffer.slice(0, newlineIndex).trim();
+        buffer = buffer.slice(newlineIndex + 1);
+        if (line.length > 0) {
+          const parsed = JSON.parse(line) as AssistantStreamEvent;
+          onEvent(parsed);
+        }
+        newlineIndex = buffer.indexOf("\n");
       }
-      newlineIndex = buffer.indexOf("\n");
     }
+  } catch (err) {
+    reader.cancel();
+    if (err instanceof DOMException && err.name === "AbortError") return;
+    throw err;
   }
   const remaining = decoder.decode();
   const finalBuffer = buffer + remaining;

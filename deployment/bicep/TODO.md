@@ -6,7 +6,7 @@ File: `parameters/GFIM/main.scai.gfim.devgov.bicepparam`
 - [x] Set `existingAcrName` — replace `'<acr-name>'` with your ACR name (e.g. `crfedairsscaidevva`)
 - [x] Verify `existingStorageAccountName` — currently `'stgfedairsscaidevva'`
 - [x] Verify `openAiChatDeploymentName` — currently `'gpt-4o'`, must match an actual deployment in your OpenAI resource
-- [ ] Verify VNet/Subnet CIDRs (`10.1.0.0/16`, `10.1.1-3.0/26`) don't conflict — check with network team
+- [x] Verify VNet/Subnet CIDRs (`10.1.0.0/16`, `10.1.1-3.0/26`) don't conflict — check with network team
 - [X] If resources are in a different RG, uncomment and set `existingStorageAccountResourceGroup`, `existingOpenAiResourceGroup`, `existingAcrResourceGroup`
 
 ## Pre-Deployment: Azure Resources That Must Already Exist
@@ -21,12 +21,12 @@ These are referenced as `existing` in the Bicep — deployment will fail if they
 
 ## Pre-Deployment: Build & Push Docker Images
 
-- [ ] Build frontend image: `docker build -t <acr>.azurecr.us/swft-frontend:<tag> -f frontend/Dockerfile frontend/`
-- [ ] Build backend image: `docker build -t <acr>.azurecr.us/swft-backend:<tag> -f backend/Dockerfile .`
-- [ ] Login to ACR: `az acr login --name <acr-name>`
-- [ ] Push frontend image: `docker push <acr>.azurecr.us/swft-frontend:<tag>`
-- [ ] Push backend image: `docker push <acr>.azurecr.us/swft-backend:<tag>`
-- [ ] Verify images in ACR: `az acr repository show-tags --name <acr> --repository swft-frontend`
+- [x] Build frontend image: `docker build -t <acr>.azurecr.us/swft-frontend:<tag> -f frontend/Dockerfile frontend/`
+- [x] Build backend image: `docker build -t <acr>.azurecr.us/swft-backend:<tag> -f backend/Dockerfile .`
+- [x] Login to ACR: `az acr login --name <acr-name>`
+- [x] Push frontend image: `docker push <acr>.azurecr.us/swft-frontend:<tag>`
+- [x] Push backend image: `docker push <acr>.azurecr.us/swft-backend:<tag>`
+- [x] Verify images in ACR: `az acr repository show-tags --name <acr> --repository swft-frontend`
 
 ## Deploy
 

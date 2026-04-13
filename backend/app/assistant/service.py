@@ -140,11 +140,18 @@ class AssistantService:
                         "azure-identity package is required for managed identity auth. "
                         "Install it with: pip install azure-identity"
                     )
+                api_base = self._settings.api_base or ""
+                if ".azure.us" in api_base:
+                    authority = "https://login.microsoftonline.us"
+                    cognitive_services_scope = "https://cognitiveservices.azure.us/.default"
+                else:
+                    authority = "https://login.microsoftonline.com"
+                    cognitive_services_scope = "https://cognitiveservices.azure.com/.default"
                 credential = DefaultAzureCredential(
-                    authority="https://login.microsoftonline.us",
+                    authority=authority,
                 )
                 token_provider = get_bearer_token_provider(
-                    credential, "https://cognitiveservices.azure.com/.default"
+                    credential, cognitive_services_scope
                 )
                 return AzureOpenAI(
                     azure_ad_token_provider=token_provider,
