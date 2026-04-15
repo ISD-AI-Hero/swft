@@ -5,8 +5,8 @@ import { LoadingState } from "@components/LoadingState";
 import { ErrorState } from "@components/ErrorState";
 
 export const DashboardPage = () => {
-  const { data, loading, error } = useApi(fetchProjects, []);
+  const { data, loading, error, retry } = useApi(fetchProjects, []);
   if (loading) return <LoadingState message="Loading projects" />;
-  if (error || !data) return <ErrorState message={error ?? "Unable to load projects."} />;
+  if (error || !data) return <ErrorState message={error ?? "Unable to load projects."} onRetry={retry} />;
   return <ProjectTable projects={data} />;
 };

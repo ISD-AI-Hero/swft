@@ -1,31 +1,10 @@
 // Run overview card: timeline, GitHub context, image provenance, artifacts list.
 import type { RunDetail } from "@lib/types";
 import { InfoPopover } from "@components/InfoPopover";
+import { SeverityBadge } from "@lib/severity";
 
 const formatDate = (value: string | null) => (value ? new Date(value).toLocaleString() : "—");
 const truncateCommit = (commit: string | undefined): string => (commit && commit.length > 7 ? commit.slice(0, 7) : commit ?? "—");
-
-const severityColors: Record<string, string> = {
-  CRITICAL:
-    "border border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/20 dark:text-rose-200",
-  HIGH:
-    "border border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-500/40 dark:bg-orange-500/20 dark:text-orange-200",
-  MEDIUM:
-    "border border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/20 dark:text-amber-200",
-  LOW:
-    "border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/20 dark:text-emerald-200",
-  UNKNOWN:
-    "border border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-600/40 dark:bg-slate-600/30 dark:text-slate-200",
-};
-
-const SeverityBadge = ({ severity }: { severity: string }) => {
-  const style = severityColors[severity] ?? severityColors.UNKNOWN;
-  return (
-    <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold ${style}`}>
-      <span>{severity}</span>
-    </span>
-  );
-};
 
 // Core layout for the run overview section. Accepts optional SBOM/Trivy highlights so the caller
 // can decide how much context to render without duplicating formatting logic.
@@ -118,9 +97,6 @@ export const RunDetailCard = ({
           <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Run timeline</h3>
           <InfoPopover title="Run timeline" description={overviewHelp.timeline.description} items={overviewHelp.timeline.items} align="left" />
         </div>
-        <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-          Snapshot of when the run executed, whether signing and vulnerability checks passed, and where it was deployed.
-        </p>
         <p className="mt-2 text-2xl font-semibold text-slate-900 dark:text-white">Run {detail.summary.run_id}</p>
         <dl className="mt-4 space-y-3 text-sm text-slate-600 dark:text-slate-300">
           <div className="flex items-center justify-between">
@@ -203,9 +179,6 @@ export const RunDetailCard = ({
           <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Image provenance</h3>
           <InfoPopover title="Image provenance" description={overviewHelp.image.description} items={overviewHelp.image.items} align="left" />
         </div>
-        <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-          Shows the image reference, digest, and base components that the run built, scanned, and deployed.
-        </p>
         <dl className="mt-4 space-y-3 text-sm text-slate-600 dark:text-slate-300">
           <div className="flex flex-col gap-1 md:flex-row md:items-start md:justify-between">
             <dt className="font-medium">Source image</dt>
@@ -248,9 +221,6 @@ export const RunDetailCard = ({
           <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Artifacts</h3>
           <InfoPopover title="Artifacts" description={overviewHelp.artifacts.description} items={overviewHelp.artifacts.items} align="left" />
         </div>
-        <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-          Downloadable outputs linked to this run—use them for independent review or archival.
-        </p>
         <ul className="mt-4 space-y-2 text-sm text-slate-600 dark:text-slate-300">
           {detail.artifacts.map((artifact) => {
             const isSignature = artifact.blob_name.endsWith(".sig");

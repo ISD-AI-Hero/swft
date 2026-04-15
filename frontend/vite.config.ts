@@ -14,6 +14,18 @@ export default defineConfig({
     jsx: "automatic",
     jsxImportSource: "react"
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          "vendor-react": ["react", "react-dom", "react-router-dom"],
+          "vendor-nivo": ["@nivo/core", "@nivo/line"],
+          "vendor-markdown": ["react-markdown", "remark-gfm", "rehype-highlight", "highlight.js"],
+          "vendor-ui": ["@headlessui/react", "@heroicons/react"],
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     proxy: {

@@ -2,31 +2,9 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import type { ProjectSummary } from "@lib/types";
+import { SeverityBadge, severityOrder, riskLevelRank } from "@lib/severity";
 
 const formatDate = (value: string | null) => (value ? new Date(value).toLocaleString() : "—");
-
-const severityOrder = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"];
-const severityColors: Record<string, string> = {
-  CRITICAL:
-    "border border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/20 dark:text-rose-200",
-  HIGH:
-    "border border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-500/40 dark:bg-orange-500/20 dark:text-orange-200",
-  MEDIUM:
-    "border border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/20 dark:text-amber-200",
-  LOW:
-    "border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/20 dark:text-emerald-200",
-  UNKNOWN:
-    "border border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-600/40 dark:bg-slate-600/30 dark:text-slate-200",
-};
-
-const SeverityBadge = ({ severity }: { severity: string }) => {
-  const style = severityColors[severity] ?? severityColors.UNKNOWN;
-  return (
-    <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold ${style}`}>
-      <span>{severity}</span>
-    </span>
-  );
-};
 
 const headers = [
   { key: "index", label: "#", sortable: false },
@@ -35,13 +13,6 @@ const headers = [
   { key: "runs", label: "Runs", sortable: true },
   { key: "latest", label: "Latest run", sortable: true }
 ] as const;
-
-const riskLevelRank = (riskLevel: string | null): number => {
-  if (!riskLevel) return severityOrder.length;
-  const normalized = riskLevel.toUpperCase();
-  const index = severityOrder.indexOf(normalized);
-  return index === -1 ? severityOrder.length : index;
-};
 
 // Column-aware sorter so we can reuse the same table for name, run count, and timestamp views.
 const sortProjects = (projects: ProjectSummary[], column: string, direction: "asc" | "desc") => {
@@ -96,24 +67,46 @@ export const ProjectTable = ({ projects }: { projects: ProjectSummary[] }) => {
   };
 
   if (projects.length === 0) {
-    return <p className="text-sm text-slate-500 dark:text-slate-400">No projects discovered yet.</p>;
+    return (
+      <div className="rounded-xl border border-slate-200 bg-white px-6 py-12 text-center shadow-sm dark:border-slate-800 dark:bg-slate-950/40">
+        <p className="font-medium text-slate-700 dark:text-slate-200">No projects discovered yet</p>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Projects appear here once a CI/CD workflow has run and uploaded artifacts to the portal.</p>
+      </div>
+    );
   }
 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition dark:border-slate-800 dark:bg-slate-950/40">
-      <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800">
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800">
         <thead className="bg-slate-100 dark:bg-slate-900/80">
           <tr>
             {headers.map((header) => (
               <th
                 key={header.key}
                 scope="col"
-                className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 ${header.sortable ? "cursor-pointer select-none" : ""}`}
+                tabIndex={header.sortable ? 0 : undefined}
+                aria-sort={
+                  !header.sortable
+                    ? undefined
+                    : header.key !== sortColumn
+                    ? "none"
+                    : sortDirection === "asc"
+                    ? "ascending"
+                    : "descending"
+                }
+                className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 ${header.sortable ? "cursor-pointer select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500" : ""}`}
                 onClick={() => handleSort(header.key, header.sortable)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    handleSort(header.key, header.sortable);
+                  }
+                }}
               >
                 <span className="flex items-center gap-2">
                   {header.label}
-                  {header.sortable && <span className="text-slate-400 dark:text-slate-500">{sortIndicator(header.key)}</span>}
+                  {header.sortable && <span aria-hidden="true" className="text-slate-400 dark:text-slate-500">{sortIndicator(header.key)}</span>}
                 </span>
               </th>
             ))}
@@ -140,7 +133,8 @@ export const ProjectTable = ({ projects }: { projects: ProjectSummary[] }) => {
             </tr>
           ))}
         </tbody>
-      </table>
+        </table>
+      </div>
     </div>
   );
 };

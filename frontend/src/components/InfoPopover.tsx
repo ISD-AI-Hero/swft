@@ -107,7 +107,7 @@ export const InfoPopover = ({ title, description, items, align = "right" }: Info
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
         aria-label={`More information about ${title}`}
-        className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-300 bg-white text-xs font-semibold text-slate-600 shadow-sm transition hover:border-slate-400 hover:text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:text-slate-50"
+        className="relative inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-300 bg-white text-xs font-semibold text-slate-600 shadow-sm transition hover:border-slate-400 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:text-slate-50 after:absolute after:-inset-[10px] after:content-['']"
       >
         ?
       </button>
