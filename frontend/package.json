@@ -12,6 +12,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@azure/msal-browser": "^3.30.0",
+    "@azure/msal-react": "^2.2.0",
     "@headlessui/react": "^1.7.18",
     "@heroicons/react": "^2.1.5",
     "@nivo/core": "^0.85.0",

@@ -18,9 +18,19 @@ def _allowed_origins() -> list[str]:
     """Return CORS allowed origins from the ALLOWED_ORIGINS env var (comma-separated).
 
     Falls back to ``["*"]`` for local development when the variable is unset.
+    In production (AUTH_ENABLED=true) an unset ALLOWED_ORIGINS logs a startup warning
+    because a wildcard origin allows any website to call the API.
     """
+    import logging as _logging
     raw = os.environ.get("ALLOWED_ORIGINS", "").strip()
     if not raw:
+        auth_enabled = os.environ.get("AUTH_ENABLED", "true").lower() not in ("false", "0", "no")
+        if auth_enabled:
+            _logging.getLogger(__name__).warning(
+                "SECURITY: ALLOWED_ORIGINS is not set but AUTH_ENABLED=true. "
+                "The API accepts requests from any origin (*). "
+                "Set ALLOWED_ORIGINS to a comma-separated list of allowed origins."
+            )
         return ["*"]
     return [o.strip() for o in raw.split(",") if o.strip()]
 

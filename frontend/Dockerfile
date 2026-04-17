@@ -17,9 +17,23 @@ RUN npm ci --include=dev
 
 FROM deps AS build
 COPY . .
-# Allow callers to change the API base URL during docker build without editing source.
+# Build-time configuration — all VITE_* vars are baked into the JS bundle by Vite.
 ARG VITE_API_BASE_URL=/api
-ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
+ARG VITE_ENABLE_SWFT_WORKSPACE=false
+ARG VITE_AUTH_ENABLED=true
+ARG VITE_AUTH_CLIENT_ID=
+ARG VITE_AUTH_TENANT_ID=
+ARG VITE_AUTH_AUTHORITY_HOST=https://login.microsoftonline.us
+ARG VITE_AUTH_REDIRECT_URI=
+ARG VITE_AUTH_API_SCOPE=
+ENV VITE_API_BASE_URL=${VITE_API_BASE_URL} \
+    VITE_ENABLE_SWFT_WORKSPACE=${VITE_ENABLE_SWFT_WORKSPACE} \
+    VITE_AUTH_ENABLED=${VITE_AUTH_ENABLED} \
+    VITE_AUTH_CLIENT_ID=${VITE_AUTH_CLIENT_ID} \
+    VITE_AUTH_TENANT_ID=${VITE_AUTH_TENANT_ID} \
+    VITE_AUTH_AUTHORITY_HOST=${VITE_AUTH_AUTHORITY_HOST} \
+    VITE_AUTH_REDIRECT_URI=${VITE_AUTH_REDIRECT_URI} \
+    VITE_AUTH_API_SCOPE=${VITE_AUTH_API_SCOPE}
 RUN npm run build && npm prune --omit=dev
 
 FROM nginxinc/nginx-unprivileged:1.27-bookworm AS runtime

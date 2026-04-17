@@ -17,6 +17,10 @@ logger = logging.getLogger("swft.backend.storage")
 
 router = APIRouter(prefix="/storage", tags=["storage"])
 
+# Explicit allow-list of containers the portal is permitted to browse.
+# Any name not in this set is denied regardless of auth level.
+ALLOWED_CONTAINERS: frozenset[str] = frozenset({"sboms", "scans", "runs"})
+
 
 def _repo(settings: AppSettings) -> AzureBlobRepository:
     # Reuse the same repository implementation used by the artifact catalog.
@@ -50,6 +54,8 @@ def list_blobs(
     - This is intended for *report browsing* scenarios in the portal.
     - If `user.allowed_projects` is set, results are filtered to only those projects.
     """
+    if container not in ALLOWED_CONTAINERS:
+        raise HTTPException(status_code=403, detail="Access denied.")
     repo = _repo(settings)
     try:
         results: list[dict[str, Any]] = []
@@ -93,6 +99,8 @@ def read_blob_text(
 
     If you store non-text (PDF, images), this will fail. For those, add a streaming endpoint.
     """
+    if container not in ALLOWED_CONTAINERS:
+        raise HTTPException(status_code=403, detail="Access denied.")
     _enforce_project_acl(user, blob_name, settings.storage.delimiter)
     repo = _repo(settings)
     try:
@@ -120,6 +128,8 @@ def read_blob_json(
 
     Use this for report artifacts that are JSON. If the blob isn't valid JSON, returns 422.
     """
+    if container not in ALLOWED_CONTAINERS:
+        raise HTTPException(status_code=403, detail="Access denied.")
     _enforce_project_acl(user, blob_name, settings.storage.delimiter)
     repo = _repo(settings)
 

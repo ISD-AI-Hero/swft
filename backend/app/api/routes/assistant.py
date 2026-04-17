@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 
 from ...assistant import AssistantService, AssistantConfig, ChatRequest, ChatResponse
+from ..deps import get_user
+from ...core.security import UserContext
 
 router = APIRouter(prefix="/assistant", tags=["assistant"])
 service = AssistantService()
@@ -15,7 +17,7 @@ INVALID_REQUEST_MESSAGE = "Invalid request. Please check your inputs and try aga
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest) -> ChatResponse:
+async def chat(request: ChatRequest, user: UserContext = Depends(get_user)) -> ChatResponse:
     """Entry point for the SWFT assistant."""
     try:
         return service.generate(request)
@@ -34,13 +36,13 @@ async def chat(request: ChatRequest) -> ChatResponse:
 
 
 @router.get("/config", response_model=AssistantConfig)
-async def config() -> AssistantConfig:
+async def config(user: UserContext = Depends(get_user)) -> AssistantConfig:
     """Expose assistant runtime configuration to the frontend."""
     return service.configuration()
 
 
 @router.post("/chat/stream")
-async def chat_stream(request: ChatRequest) -> StreamingResponse:
+async def chat_stream(request: ChatRequest, user: UserContext = Depends(get_user)) -> StreamingResponse:
     """Stream assistant responses as newline-delimited JSON events."""
     try:
         generator = service.stream(request)

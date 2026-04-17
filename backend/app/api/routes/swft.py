@@ -23,7 +23,8 @@ from ...models.swft import (
 from ...services.swft import SwftComplianceService, get_swft_service
 from ...services.azure_services import get_azure_services
 from ...services.azure_regions import get_azure_regions
-from ..deps import get_catalog
+from ..deps import get_catalog, get_user
+from ...core.security import UserContext
 from ...services.catalog import ArtifactCatalogService
 from ...services.exceptions import NotFoundError
 from ...services.azure_policy_sets import list_policy_sets, get_policy_set

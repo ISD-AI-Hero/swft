@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AppShell } from "@components/AppShell";
+import { AuthGuard } from "@components/AuthGuard";
 import { DashboardPage } from "@pages/Dashboard";
 import { LoadingState } from "@components/LoadingState";
 import { SWFT_WORKSPACE_ENABLED } from "@lib/features";
@@ -20,25 +21,27 @@ const SwftWorkspacePage = lazy(() =>
 
 export const App = () => (
   <BrowserRouter future={{ v7_relativeSplatPath: true }}>
-    <AppShell>
-      <Suspense fallback={<LoadingState message="Loading" />}>
-        <Routes>
-          <Route path="/" element={<DashboardPage />} />
-          <Route path="/projects/:projectId" element={<ProjectPage />} />
-          <Route path="/projects/:projectId/runs/:runId" element={<RunPage />} />
-          {SWFT_WORKSPACE_ENABLED ? (
-            <>
-              <Route path="/swft" element={<SwftHomePage />} />
-              <Route path="/swft/:projectId" element={<SwftWorkspacePage />} />
-            </>
-          ) : (
-            <>
-              <Route path="/swft" element={<Navigate to="/" replace />} />
-              <Route path="/swft/:projectId" element={<Navigate to="/" replace />} />
-            </>
-          )}
-        </Routes>
-      </Suspense>
-    </AppShell>
+    <AuthGuard>
+      <AppShell>
+        <Suspense fallback={<LoadingState message="Loading" />}>
+          <Routes>
+            <Route path="/" element={<DashboardPage />} />
+            <Route path="/projects/:projectId" element={<ProjectPage />} />
+            <Route path="/projects/:projectId/runs/:runId" element={<RunPage />} />
+            {SWFT_WORKSPACE_ENABLED ? (
+              <>
+                <Route path="/swft" element={<SwftHomePage />} />
+                <Route path="/swft/:projectId" element={<SwftWorkspacePage />} />
+              </>
+            ) : (
+              <>
+                <Route path="/swft" element={<Navigate to="/" replace />} />
+                <Route path="/swft/:projectId" element={<Navigate to="/" replace />} />
+              </>
+            )}
+          </Routes>
+        </Suspense>
+      </AppShell>
+    </AuthGuard>
   </BrowserRouter>
 );

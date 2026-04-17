@@ -26,6 +26,12 @@ param storageConnectionString string = ''
 @description('Azure Tenant ID')
 param azureTenantId string = ''
 
+@description('Client ID of the backend app registration (scai-backend-api)')
+param authClientId string = ''
+
+@description('Comma-separated list of allowed CORS origins, e.g. https://scai-ui-dev.azurewebsites.us')
+param allowedOrigins string = ''
+
 
 
 // ============================================================================
@@ -152,6 +158,22 @@ module backendAppService 'br/public:avm/res/web/site:0.12.0' = {
         {
           name: 'AZURE_TENANT_ID'
           value: azureTenantId
+        }
+        {
+          name: 'AUTH_ENABLED'
+          value: 'true'
+        }
+        {
+          name: 'AUTH_CLIENT_ID'
+          value: authClientId
+        }
+        {
+          name: 'AUTH_AUTHORITY_HOST'
+          value: 'https://login.microsoftonline.us'
+        }
+        {
+          name: 'ALLOWED_ORIGINS'
+          value: allowedOrigins
         }
         {
           name: 'CACHE_TTL_SECONDS'

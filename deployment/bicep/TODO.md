@@ -21,12 +21,23 @@ These are referenced as `existing` in the Bicep — deployment will fail if they
 
 ## Pre-Deployment: Build & Push Docker Images
 
-- [x] Build frontend image: `docker build -t <acr>.azurecr.us/swft-frontend:<tag> -f frontend/Dockerfile frontend/`
-- [x] Build backend image: `docker build -t <acr>.azurecr.us/swft-backend:<tag> -f backend/Dockerfile .`
+- [x] Build frontend image (auth baked in at build time):
+  ```
+  docker build \
+    --build-arg VITE_AUTH_ENABLED=true \
+    --build-arg VITE_AUTH_CLIENT_ID=<scai-frontend-ui client ID> \
+    --build-arg VITE_AUTH_TENANT_ID=<tenant-id> \
+    --build-arg VITE_AUTH_AUTHORITY_HOST=https://login.microsoftonline.us \
+    --build-arg VITE_AUTH_REDIRECT_URI=https://<your-container-app-url> \
+    --build-arg VITE_AUTH_API_SCOPE=api://<scai-backend-api client ID>/user_impersonation \
+    -t <acr>.azurecr.us/scai-frontend:<tag> \
+    -f frontend/Dockerfile frontend/
+  ```
+- [x] Build backend image: `docker build -t <acr>.azurecr.us/scai-backend:<tag> -f backend/Dockerfile .`
 - [x] Login to ACR: `az acr login --name <acr-name>`
-- [x] Push frontend image: `docker push <acr>.azurecr.us/swft-frontend:<tag>`
-- [x] Push backend image: `docker push <acr>.azurecr.us/swft-backend:<tag>`
-- [x] Verify images in ACR: `az acr repository show-tags --name <acr> --repository swft-frontend`
+- [x] Push frontend image: `docker push <acr>.azurecr.us/scai-frontend:<tag>`
+- [x] Push backend image: `docker push <acr>.azurecr.us/scai-backend:<tag>`
+- [x] Verify images in ACR: `az acr repository show-tags --name <acr> --repository scai-frontend`
 
 ## Deploy
 

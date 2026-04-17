@@ -83,6 +83,25 @@ param uiImageTag string = 'v1.0.0'
 param apiImageTag string = 'v1.0.0'
 
 // ============================================================================
+// AUTHENTICATION CONFIGURATION
+// ============================================================================
+
+@description('Enable Entra ID JWT authentication on the backend API. Set to true in production.')
+param authEnabled bool = false
+
+@description('Application (client) ID of the backend app registration.  Required when authEnabled = true.')
+param authClientId string = ''
+
+@description('Entra ID authority host. Defaults to Azure Government.')
+param authAuthorityHost string = 'https://login.microsoftonline.us'
+
+@description('Entra ID tenant ID. Required when authEnabled = true.')
+param authTenantId string = ''
+
+@description('Comma-separated list of allowed CORS origins for the backend API. Defaults to the UI App Service URL.')
+param allowedOrigins string = ''
+
+// ============================================================================
 // COMPUTED VARIABLES
 // ============================================================================
 
@@ -807,6 +826,26 @@ module appServiceApi 'modules/avm/res/web/site/main.bicep' = {
         {
           name: 'WEBSITES_PORT'
           value: '8000'
+        }
+        {
+          name: 'AUTH_ENABLED'
+          value: authEnabled ? 'true' : 'false'
+        }
+        {
+          name: 'AUTH_CLIENT_ID'
+          value: authClientId
+        }
+        {
+          name: 'AUTH_AUTHORITY_HOST'
+          value: authAuthorityHost
+        }
+        {
+          name: 'AZURE_TENANT_ID'
+          value: authTenantId
+        }
+        {
+          name: 'ALLOWED_ORIGINS'
+          value: allowedOrigins
         }
       ]
     }

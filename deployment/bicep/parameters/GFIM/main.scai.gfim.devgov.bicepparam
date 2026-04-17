@@ -10,10 +10,10 @@ param locationAbbreviation = 'va'
 
 // Container image for frontend and backend
 // @description('Image tag for the frontend container')
-// param uiImageTag string = 'v1.0.0'
+param uiImageTag = 'v2.0.0'
 
 // @description('Image tag for the backend container')
-// param apiImageTag string = 'v1.0.0'
+param apiImageTag  = 'v2.0.0'
 
 
 
@@ -92,3 +92,15 @@ param openAiApiVersion = '2024-10-21'
 
 param skuNameAppServicePlan = 'B2'
 param serverFarmSkuCapacity = 1
+
+// ============================================================================
+// AUTHENTICATION CONFIGURATION
+// ============================================================================
+
+// Set authEnabled = true and populate authClientId once app registrations are created.
+// See docs/APP-REGISTRATIONS.md for setup instructions.
+param authEnabled = true
+param authClientId = 'd11e787e-bef4-47b7-970f-ae80fe1496f0' // TODO: backend app registration Application (client) ID
+param authAuthorityHost = 'https://login.microsoftonline.us'
+param authTenantId = 'de53bc81-f5be-4d12-92a9-43d47ef8cf2d'
+param allowedOrigins = 'https://app-gfim-scai-ui-dev-va.azurewebsites.us'
